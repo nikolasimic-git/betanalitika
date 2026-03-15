@@ -1,39 +1,36 @@
--- BetAnalitika Database Schema
+-- BetAnalitika Full Database Schema
 
 -- Profiles (extends Supabase auth.users)
 CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT NOT NULL,
-  display_name TEXT,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email TEXT UNIQUE NOT NULL,
   name TEXT,
-  tier TEXT NOT NULL DEFAULT 'free' CHECK (tier IN ('free', 'premium')),
-  role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-  password_hash TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+  tier TEXT DEFAULT 'free' CHECK (tier IN ('free', 'premium')),
+  created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- Picks
 CREATE TABLE IF NOT EXISTS picks (
   id TEXT PRIMARY KEY,
   match_date DATE NOT NULL,
-  sport TEXT NOT NULL DEFAULT 'football',
   league TEXT NOT NULL,
-  league_flag TEXT DEFAULT '',
+  league_flag TEXT,
   home_team TEXT NOT NULL,
   away_team TEXT NOT NULL,
-  kick_off TEXT DEFAULT 'TBD',
+  kick_off TEXT,
   prediction_type TEXT NOT NULL,
   prediction_value TEXT NOT NULL,
   confidence INT CHECK (confidence BETWEEN 1 AND 5),
   reasoning TEXT,
-  odds DECIMAL(5,2) DEFAULT 1.80,
-  bookmaker TEXT DEFAULT 'Mozzart',
-  affiliate_url TEXT DEFAULT 'https://www.mozzartbet.com',
-  result TEXT NOT NULL DEFAULT 'pending' CHECK (result IN ('pending', 'won', 'lost')),
-  is_free BOOLEAN NOT NULL DEFAULT false,
+  odds DECIMAL(5,2),
+  bookmaker TEXT,
+  affiliate_url TEXT,
+  result TEXT DEFAULT 'pending' CHECK (result IN ('pending', 'won', 'lost')),
+  is_free BOOLEAN DEFAULT false,
+  sport TEXT DEFAULT 'football',
   value_edge DECIMAL(5,2),
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- Odds cache
@@ -72,52 +69,22 @@ CREATE INDEX IF NOT EXISTS idx_picks_match_date ON picks(match_date);
 CREATE INDEX IF NOT EXISTS idx_picks_sport ON picks(sport);
 CREATE INDEX IF NOT EXISTS idx_picks_result ON picks(result);
 
--- RLS Policies
+-- Enable RLS
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE picks ENABLE ROW LEVEL SECURITY;
 
--- Everyone can read picks
+-- RLS policies
 DO $$ BEGIN
-  DROP POLICY IF EXISTS "Picks are viewable by everyone" ON picks;
-  DROP POLICY IF EXISTS "Admins can manage picks" ON picks;
-  DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
-  DROP POLICY IF EXISTS "Admins can manage profiles" ON profiles;
   DROP POLICY IF EXISTS "Public picks read" ON picks;
   DROP POLICY IF EXISTS "Admin picks write" ON picks;
   DROP POLICY IF EXISTS "Public profiles read" ON profiles;
 END $$;
 
-CREATE POLICY "Public picks read" ON picks
-  FOR SELECT USING (true);
-
-CREATE POLICY "Admin picks write" ON picks
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
-  );
-
-CREATE POLICY "Public profiles read" ON profiles
-  FOR SELECT USING (true);
-
-CREATE POLICY "Admins can manage profiles" ON profiles
-  FOR ALL USING (
-    EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
-  );
-
--- Function to handle new user registration
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO profiles (id, email, display_name, name)
-  VALUES (NEW.id, NEW.email, COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)), COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)));
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Trigger for auto-creating profile
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+CREATE POLICY "Public picks read" ON picks FOR SELECT USING (true);
+CREATE POLICY "Admin picks write" ON picks FOR ALL USING (
+  auth.jwt() ->> 'role' = 'admin'
+);
+CREATE POLICY "Public profiles read" ON profiles FOR SELECT USING (true);
 
 -- Stats view
 CREATE OR REPLACE VIEW pick_stats AS

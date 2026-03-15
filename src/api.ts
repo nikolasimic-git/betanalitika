@@ -1,5 +1,8 @@
+import { supabase } from './lib/supabase'
+
+// ── Fallback API base for admin/auth operations that still use Express ──
 export const API_BASE = import.meta.env.DEV 
-  ? (window.location.hostname === 'localhost' ? 'http://localhost:3001' : 'https://uncle-double-mechanical-ski.trycloudflare.com')
+  ? (window.location.hostname === 'localhost' ? 'http://localhost:3001' : '')
   : ''
 
 function headers(token?: string | null): Record<string, string> {
@@ -8,22 +11,133 @@ function headers(token?: string | null): Record<string, string> {
   return h
 }
 
+// ══════════════════════════════════════════
+// PUBLIC READS — Direct from Supabase
+// ══════════════════════════════════════════
+
 export async function fetchTodayPicks(token?: string | null, sport = 'all') {
-  const res = await fetch(`${API_BASE}/api/picks/today?sport=${sport}`, { headers: headers(token) })
-  return res.json()
+  const today = new Date().toISOString().split('T')[0]
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
+
+  let query = supabase
+    .from('picks')
+    .select('*')
+    .in('match_date', [today, tomorrow])
+    .eq('result', 'pending')
+    .order('match_date')
+
+  if (sport && sport !== 'all') {
+    query = query.eq('sport', sport)
+  }
+
+  const { data: picks, error } = await query
+
+  if (error) return { picks: [], date: today, message: error.message }
+  if (!picks || picks.length === 0) {
+    return { picks: [], date: today, message: 'Pikovi za danas još nisu generisani.' }
+  }
+
+  // Check premium status via token (if using Express auth)
+  // For Supabase Auth, check session
+  const { data: { session } } = await supabase.auth.getSession()
+  let isPremium = false
+  if (session?.user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('tier')
+      .eq('id', session.user.id)
+      .single()
+    isPremium = profile?.tier === 'premium'
+  }
+
+  // Also check via legacy token
+  if (!isPremium && token) {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/me`, { headers: headers(token) })
+      if (res.ok) {
+        const { user } = await res.json()
+        isPremium = user?.tier === 'premium'
+      }
+    } catch (_) {}
+  }
+
+  const result = picks.map((p: any) => {
+    if (!p.is_free && !isPremium) {
+      return {
+        ...p,
+        reasoning: '🔒 Premium pikovi su dostupni samo za premium korisnike.',
+        prediction_value: '🔒',
+        odds: 0,
+        locked: true,
+      }
+    }
+    return { ...p, locked: false }
+  })
+
+  return { picks: result, date: today }
 }
 
 export async function fetchHistory(page = 1, limit = 20, sport = 'all') {
-  const res = await fetch(`${API_BASE}/api/picks/history?page=${page}&limit=${limit}&sport=${sport}`)
-  return res.json()
+  const offset = (page - 1) * limit
+
+  let query = supabase
+    .from('picks')
+    .select('*', { count: 'exact' })
+    .neq('result', 'pending')
+    .order('match_date', { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (sport && sport !== 'all') {
+    query = query.eq('sport', sport)
+  }
+
+  const { data: picks, count, error } = await query
+
+  if (error) return { picks: [], total: 0, page, totalPages: 0 }
+
+  return {
+    picks: picks || [],
+    total: count || 0,
+    page,
+    totalPages: Math.ceil((count || 0) / limit),
+  }
 }
 
 export async function fetchStats(sport = 'all') {
-  const res = await fetch(`${API_BASE}/api/stats?sport=${sport}`)
-  return res.json()
+  let query = supabase.from('picks').select('result, odds, sport')
+
+  if (sport && sport !== 'all') {
+    query = query.eq('sport', sport)
+  }
+
+  const { data: allPicks, error } = await query
+  if (error) return { totalPicks: 0, won: 0, lost: 0, pending: 0, winRate: 0, roi: 0, currentStreak: 0, streakType: 'W' }
+
+  const resolved = (allPicks || []).filter((p: any) => p.result !== 'pending')
+  const won = resolved.filter((p: any) => p.result === 'won')
+  const lost = resolved.filter((p: any) => p.result === 'lost')
+  const pending = (allPicks || []).filter((p: any) => p.result === 'pending')
+
+  const totalStake = resolved.length
+  const totalReturn = won.reduce((sum: number, p: any) => sum + (parseFloat(p.odds) || 1.8), 0)
+  const roi = totalStake > 0 ? ((totalReturn - totalStake) / totalStake * 100) : 0
+
+  return {
+    totalPicks: resolved.length,
+    won: won.length,
+    lost: lost.length,
+    pending: pending.length,
+    winRate: resolved.length > 0 ? +(won.length / resolved.length * 100).toFixed(1) : 0,
+    roi: +roi.toFixed(1),
+    currentStreak: 0,
+    streakType: 'W' as const,
+  }
 }
 
-// Admin
+// ══════════════════════════════════════════
+// ADMIN — Still through Express API (needs auth middleware)
+// ══════════════════════════════════════════
+
 export async function adminDashboard(token: string) {
   const res = await fetch(`${API_BASE}/api/admin/dashboard`, { headers: headers(token) })
   return res.json()

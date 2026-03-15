@@ -1,75 +1,13 @@
 import express from 'express'
 import cors from 'cors'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
 import crypto from 'crypto'
+import { supabase } from './supabase-client.mjs'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 app.use(cors())
 app.use(express.json())
 
-const DATA_FILE = join(__dirname, 'picks-db.json')
-const USERS_FILE = join(__dirname, 'users.json')
-
-// ── DB Helpers ──
-function loadDB() {
-  if (!existsSync(DATA_FILE)) {
-    writeFileSync(DATA_FILE, JSON.stringify({ picks: [], lastGenerated: null }, null, 2))
-  }
-  return JSON.parse(readFileSync(DATA_FILE, 'utf-8'))
-}
-
-function saveDB(data) {
-  writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
-}
-
-function loadUsers() {
-  if (!existsSync(USERS_FILE)) {
-    // Default users: admin + test premium user
-    const defaultUsers = {
-      users: [
-        {
-          id: 'admin-1',
-          email: 'admin@betanalitika.rs',
-          password: hashPassword('admin123'),
-          name: 'Admin',
-          role: 'admin',
-          tier: 'premium',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 'user-nikola',
-          email: 'nikola@betanalitika.rs',
-          password: hashPassword('premium123'),
-          name: 'Nikola',
-          role: 'user',
-          tier: 'premium',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: 'user-free',
-          email: 'free@betanalitika.rs',
-          password: hashPassword('free123'),
-          name: 'Free User',
-          role: 'user',
-          tier: 'free',
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      sessions: {},
-    }
-    writeFileSync(USERS_FILE, JSON.stringify(defaultUsers, null, 2))
-    return defaultUsers
-  }
-  return JSON.parse(readFileSync(USERS_FILE, 'utf-8'))
-}
-
-function saveUsers(data) {
-  writeFileSync(USERS_FILE, JSON.stringify(data, null, 2))
-}
-
+// ── Helpers ──
 function hashPassword(pw) {
   return crypto.createHash('sha256').update(pw).digest('hex')
 }
@@ -82,18 +20,30 @@ function todayStr() {
   return new Date().toISOString().split('T')[0]
 }
 
+// In-memory session store (for backward compat — could move to Supabase later)
+const sessions = {}
+
 // ── Auth Middleware ──
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '')
   if (!token) return res.status(401).json({ error: 'No token' })
-  
-  const users = loadUsers()
-  const userId = users.sessions?.[token]
+
+  const userId = sessions[token]
   if (!userId) return res.status(401).json({ error: 'Invalid token' })
-  
-  const user = users.users.find(u => u.id === userId)
-  if (!user) return res.status(401).json({ error: 'User not found' })
-  
+
+  req.userId = userId
+  req.token = token
+  next()
+}
+
+async function loadUser(req, res, next) {
+  const { data: user, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', req.userId)
+    .single()
+
+  if (error || !user) return res.status(401).json({ error: 'User not found' })
   req.user = user
   next()
 }
@@ -109,66 +59,78 @@ function adminMiddleware(req, res, next) {
 // AUTH ROUTES
 // ══════════════════════════════════════════
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body
-  const users = loadUsers()
-  
-  const user = users.users.find(u => u.email === email)
-  if (!user || user.password !== hashPassword(password)) {
+
+  const { data: user, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('email', email)
+    .single()
+
+  if (error || !user) {
     return res.status(401).json({ error: 'Pogrešan email ili lozinka' })
   }
-  
+
+  // Check password (stored as hash in a password_hash field, or use Supabase Auth)
+  // For backward compat, we check the hashed password
+  if (user.password_hash && user.password_hash !== hashPassword(password)) {
+    return res.status(401).json({ error: 'Pogrešan email ili lozinka' })
+  }
+
   const token = generateToken()
-  users.sessions = users.sessions || {}
-  users.sessions[token] = user.id
-  saveUsers(users)
-  
+  sessions[token] = user.id
+
   res.json({
     token,
     user: { id: user.id, email: user.email, name: user.name, role: user.role, tier: user.tier },
   })
 })
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { email, password, name } = req.body
-  const users = loadUsers()
-  
-  if (users.users.find(u => u.email === email)) {
+
+  // Check if user exists
+  const { data: existing } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('email', email)
+    .single()
+
+  if (existing) {
     return res.status(400).json({ error: 'Email već postoji' })
   }
-  
-  const newUser = {
-    id: `user-${Date.now()}`,
-    email,
-    password: hashPassword(password),
-    name: name || email.split('@')[0],
-    role: 'user',
-    tier: 'free',
-    createdAt: new Date().toISOString(),
-  }
-  
-  users.users.push(newUser)
+
+  const { data: newUser, error } = await supabase
+    .from('profiles')
+    .insert({
+      email,
+      name: name || email.split('@')[0],
+      role: 'user',
+      tier: 'free',
+      password_hash: hashPassword(password),
+    })
+    .select()
+    .single()
+
+  if (error) return res.status(500).json({ error: error.message })
+
   const token = generateToken()
-  users.sessions = users.sessions || {}
-  users.sessions[token] = newUser.id
-  saveUsers(users)
-  
+  sessions[token] = newUser.id
+
   res.json({
     token,
     user: { id: newUser.id, email: newUser.email, name: newUser.name, role: newUser.role, tier: newUser.tier },
   })
 })
 
-app.get('/api/auth/me', authMiddleware, (req, res) => {
-  const { password, ...user } = req.user
+app.get('/api/auth/me', authMiddleware, loadUser, (req, res) => {
+  const { password_hash, ...user } = req.user
   res.json({ user })
 })
 
 app.post('/api/auth/logout', authMiddleware, (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '')
-  const users = loadUsers()
-  delete users.sessions[token]
-  saveUsers(users)
+  delete sessions[req.token]
   res.json({ ok: true })
 })
 
@@ -176,112 +138,132 @@ app.post('/api/auth/logout', authMiddleware, (req, res) => {
 // PICKS ROUTES (Public + Auth)
 // ══════════════════════════════════════════
 
-app.get('/api/picks/today', (req, res) => {
-  const db = loadDB()
+app.get('/api/picks/today', async (req, res) => {
   const today = todayStr()
-  
-  // Show today's or tomorrow's picks (for late evening generation)
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
-  let todayPicks = db.picks.filter(p => p.matchDate === today || p.matchDate === tomorrow).filter(p => p.result === 'pending')
-  
-  if (todayPicks.length === 0) {
-    // No picks generated yet — return empty with message
-    return res.json({ picks: [], date: today, message: 'Pikovi za danas još nisu generisani. Pokrenite Python skriptu.' })
+
+  let query = supabase
+    .from('picks')
+    .select('*')
+    .in('match_date', [today, tomorrow])
+    .eq('result', 'pending')
+
+  const sport = req.query.sport
+  if (sport && sport !== 'all') {
+    query = query.eq('sport', sport)
   }
-  
+
+  const { data: todayPicks, error } = await query.order('match_date')
+
+  if (error) return res.status(500).json({ error: error.message })
+
+  if (!todayPicks || todayPicks.length === 0) {
+    return res.json({ picks: [], date: today, message: 'Pikovi za danas još nisu generisani.' })
+  }
+
   // Check auth for premium
   const token = req.headers.authorization?.replace('Bearer ', '')
   let isPremium = false
-  if (token) {
-    const users = loadUsers()
-    const userId = users.sessions?.[token]
-    const user = users.users?.find(u => u.id === userId)
+  if (token && sessions[token]) {
+    const { data: user } = await supabase
+      .from('profiles')
+      .select('tier')
+      .eq('id', sessions[token])
+      .single()
     isPremium = user?.tier === 'premium'
   }
-  
-  // Sport filter
-  const sport = req.query.sport
-  if (sport && sport !== 'all') {
-    todayPicks = todayPicks.filter(p => p.sport === sport)
-  }
-  
+
   const result = todayPicks.map(p => {
-    if (!p.isFree && !isPremium) {
+    if (!p.is_free && !isPremium) {
       return {
         ...p,
         reasoning: '🔒 Premium pikovi su dostupni samo za premium korisnike.',
-        predictionValue: '🔒',
+        prediction_value: '🔒',
         odds: 0,
         locked: true,
       }
     }
     return { ...p, locked: false }
   })
-  
+
   res.json({ picks: result, date: today })
 })
 
-app.get('/api/picks/history', (req, res) => {
-  const db = loadDB()
-  const today = todayStr()
-  
-  let history = db.picks
-    .filter(p => p.result !== 'pending')
-    .sort((a, b) => b.matchDate.localeCompare(a.matchDate))
-  
-  // Sport filter
+app.get('/api/picks/history', async (req, res) => {
   const sport = req.query.sport
-  if (sport && sport !== 'all') {
-    history = history.filter(p => p.sport === sport)
-  }
-  
   const page = parseInt(req.query.page) || 1
   const limit = parseInt(req.query.limit) || 20
   const offset = (page - 1) * limit
-  
+
+  let query = supabase
+    .from('picks')
+    .select('*', { count: 'exact' })
+    .neq('result', 'pending')
+    .order('match_date', { ascending: false })
+    .range(offset, offset + limit - 1)
+
+  if (sport && sport !== 'all') {
+    query = query.eq('sport', sport)
+  }
+
+  const { data: picks, count, error } = await query
+
+  if (error) return res.status(500).json({ error: error.message })
+
   res.json({
-    picks: history.slice(offset, offset + limit),
-    total: history.length,
+    picks: picks || [],
+    total: count || 0,
     page,
-    totalPages: Math.ceil(history.length / limit),
+    totalPages: Math.ceil((count || 0) / limit),
   })
 })
 
-app.get('/api/stats', (req, res) => {
-  const db = loadDB()
-  
-  let resolved = db.picks.filter(p => p.result !== 'pending')
-  
-  // Sport filter
+app.get('/api/stats', async (req, res) => {
   const sport = req.query.sport
+
+  let query = supabase.from('picks').select('result, odds, sport')
+
   if (sport && sport !== 'all') {
-    resolved = resolved.filter(p => p.sport === sport)
+    query = query.eq('sport', sport)
   }
-  
+
+  const { data: allPicks, error } = await query
+  if (error) return res.status(500).json({ error: error.message })
+
+  const resolved = (allPicks || []).filter(p => p.result !== 'pending')
   const won = resolved.filter(p => p.result === 'won')
   const lost = resolved.filter(p => p.result === 'lost')
-  
+  const pending = (allPicks || []).filter(p => p.result === 'pending')
+
+  const totalStake = resolved.length
+  const totalReturn = won.reduce((sum, p) => sum + (parseFloat(p.odds) || 1.8), 0)
+  const roi = totalStake > 0 ? ((totalReturn - totalStake) / totalStake * 100) : 0
+
+  // Streak calculation
   let streak = 0
   let streakType = 'W'
-  const sorted = [...resolved].sort((a, b) => b.matchDate.localeCompare(a.matchDate))
-  if (sorted.length > 0) {
-    streakType = sorted[0].result === 'won' ? 'W' : 'L'
-    for (const p of sorted) {
+  // Need ordered data for streak
+  const { data: orderedPicks } = await supabase
+    .from('picks')
+    .select('result')
+    .neq('result', 'pending')
+    .order('match_date', { ascending: false })
+    .limit(50)
+
+  if (orderedPicks && orderedPicks.length > 0) {
+    streakType = orderedPicks[0].result === 'won' ? 'W' : 'L'
+    for (const p of orderedPicks) {
       if ((p.result === 'won' && streakType === 'W') || (p.result === 'lost' && streakType === 'L')) {
         streak++
       } else break
     }
   }
-  
-  const totalStake = resolved.length
-  const totalReturn = won.reduce((sum, p) => sum + (p.odds || 1.8), 0)
-  const roi = totalStake > 0 ? ((totalReturn - totalStake) / totalStake * 100) : 0
-  
+
   res.json({
     totalPicks: resolved.length,
     won: won.length,
     lost: lost.length,
-    pending: db.picks.filter(p => p.result === 'pending').length,
+    pending: pending.length,
     winRate: resolved.length > 0 ? +(won.length / resolved.length * 100).toFixed(1) : 0,
     roi: +roi.toFixed(1),
     currentStreak: streak,
@@ -293,92 +275,106 @@ app.get('/api/stats', (req, res) => {
 // ADMIN ROUTES
 // ══════════════════════════════════════════
 
-app.get('/api/admin/picks', authMiddleware, adminMiddleware, (req, res) => {
-  const db = loadDB()
-  const today = todayStr()
-  
-  let picks = db.picks.sort((a, b) => b.matchDate.localeCompare(a.matchDate))
-  
+app.get('/api/admin/picks', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  let query = supabase.from('picks').select('*').order('match_date', { ascending: false })
+
   const dateFilter = req.query.date
   if (dateFilter) {
-    picks = picks.filter(p => p.matchDate === dateFilter)
+    query = query.eq('match_date', dateFilter)
   }
-  
-  res.json({ picks, total: picks.length })
+
+  const { data: picks, error } = await query
+  if (error) return res.status(500).json({ error: error.message })
+
+  res.json({ picks: picks || [], total: (picks || []).length })
 })
 
-app.put('/api/admin/picks/:id', authMiddleware, adminMiddleware, (req, res) => {
-  const db = loadDB()
-  const idx = db.picks.findIndex(p => p.id === req.params.id)
-  if (idx === -1) return res.status(404).json({ error: 'Pick not found' })
-  
-  db.picks[idx] = { ...db.picks[idx], ...req.body }
-  saveDB(db)
-  res.json({ ok: true, pick: db.picks[idx] })
-})
+app.put('/api/admin/picks/:id', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { data: pick, error } = await supabase
+    .from('picks')
+    .update(req.body)
+    .eq('id', req.params.id)
+    .select()
+    .single()
 
-app.delete('/api/admin/picks/:id', authMiddleware, adminMiddleware, (req, res) => {
-  const db = loadDB()
-  db.picks = db.picks.filter(p => p.id !== req.params.id)
-  saveDB(db)
-  res.json({ ok: true })
-})
-
-app.post('/api/admin/picks', authMiddleware, adminMiddleware, (req, res) => {
-  const db = loadDB()
-  const pick = {
-    id: `pick-manual-${Date.now()}`,
-    matchDate: todayStr(),
-    result: 'pending',
-    isFree: false,
-    ...req.body,
-  }
-  db.picks.push(pick)
-  saveDB(db)
+  if (error) return res.status(404).json({ error: error.message })
   res.json({ ok: true, pick })
 })
 
-// Update pick result (won/lost)
-app.post('/api/admin/picks/:id/result', authMiddleware, adminMiddleware, (req, res) => {
-  const db = loadDB()
-  const idx = db.picks.findIndex(p => p.id === req.params.id)
-  if (idx === -1) return res.status(404).json({ error: 'Pick not found' })
-  
-  db.picks[idx].result = req.body.result // 'won' | 'lost'
-  saveDB(db)
-  res.json({ ok: true, pick: db.picks[idx] })
-})
-
-// Admin: List users
-app.get('/api/admin/users', authMiddleware, adminMiddleware, (req, res) => {
-  const users = loadUsers()
-  res.json({ users: users.users.map(({ password, ...u }) => u) })
-})
-
-// Admin: Update user tier
-app.put('/api/admin/users/:id/tier', authMiddleware, adminMiddleware, (req, res) => {
-  const users = loadUsers()
-  const idx = users.users.findIndex(u => u.id === req.params.id)
-  if (idx === -1) return res.status(404).json({ error: 'User not found' })
-  
-  users.users[idx].tier = req.body.tier
-  saveUsers(users)
+app.delete('/api/admin/picks/:id', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { error } = await supabase.from('picks').delete().eq('id', req.params.id)
+  if (error) return res.status(500).json({ error: error.message })
   res.json({ ok: true })
 })
 
-// Admin: Dashboard stats
-app.get('/api/admin/dashboard', authMiddleware, adminMiddleware, (req, res) => {
-  const db = loadDB()
-  const users = loadUsers()
+app.post('/api/admin/picks', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const pick = {
+    id: `pick-manual-${Date.now()}`,
+    match_date: todayStr(),
+    result: 'pending',
+    is_free: false,
+    ...req.body,
+  }
+
+  const { data, error } = await supabase.from('picks').insert(pick).select().single()
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true, pick: data })
+})
+
+app.post('/api/admin/picks/:id/result', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { data: pick, error } = await supabase
+    .from('picks')
+    .update({ result: req.body.result })
+    .eq('id', req.params.id)
+    .select()
+    .single()
+
+  if (error) return res.status(404).json({ error: error.message })
+  res.json({ ok: true, pick })
+})
+
+app.get('/api/admin/users', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { data: users, error } = await supabase
+    .from('profiles')
+    .select('id, email, name, role, tier, created_at')
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ users: users || [] })
+})
+
+app.put('/api/admin/users/:id/tier', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { error } = await supabase
+    .from('profiles')
+    .update({ tier: req.body.tier })
+    .eq('id', req.params.id)
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true })
+})
+
+app.get('/api/admin/dashboard', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
   const today = todayStr()
-  
+
+  const [
+    { count: totalPicks },
+    { count: todayPicksCount },
+    { count: pendingPicks },
+    { count: totalUsers },
+    { count: premiumUsers },
+  ] = await Promise.all([
+    supabase.from('picks').select('*', { count: 'exact', head: true }),
+    supabase.from('picks').select('*', { count: 'exact', head: true }).eq('match_date', today),
+    supabase.from('picks').select('*', { count: 'exact', head: true }).eq('result', 'pending'),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('tier', 'premium'),
+  ])
+
   res.json({
-    totalPicks: db.picks.length,
-    todayPicks: db.picks.filter(p => p.matchDate === today).length,
-    pendingPicks: db.picks.filter(p => p.result === 'pending').length,
-    totalUsers: users.users.length,
-    premiumUsers: users.users.filter(u => u.tier === 'premium').length,
-    lastGenerated: db.lastGenerated,
+    totalPicks: totalPicks || 0,
+    todayPicks: todayPicksCount || 0,
+    pendingPicks: pendingPicks || 0,
+    totalUsers: totalUsers || 0,
+    premiumUsers: premiumUsers || 0,
   })
 })
 
@@ -386,15 +382,20 @@ app.get('/api/admin/dashboard', authMiddleware, adminMiddleware, (req, res) => {
 // VALUE BETTING ROUTES
 // ══════════════════════════════════════════
 
-// Admin: Pokreni sve scrapere
-app.post('/api/admin/scrape', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/admin/scrape', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
   try {
     const { scrapeXG } = await import('./scrapers/fbref-xg.mjs')
     const { scrapeOdds } = await import('./scrapers/odds-api.mjs')
     const { scrapeNBA } = await import('./scrapers/nba-stats.mjs')
     const { scrapeMaxBetAll } = await import('./scrapers/maxbet-scraper.mjs')
     const { scrapeCryptoAll } = await import('./scrapers/crypto-scrapers.mjs')
-    
+    // Playwright browser scrapers
+    let browserResult = { skipped: 'import failed' }
+    try {
+      const { scrapeAll } = await import('./scrapers/browser-scrapers.mjs')
+      browserResult = await scrapeAll().catch(e => ({ error: e.message }))
+    } catch (_) {}
+
     const [xg, odds, nba, maxbet, crypto] = await Promise.all([
       scrapeXG().catch(e => ({ error: e.message })),
       scrapeOdds().catch(e => ({ error: e.message })),
@@ -402,15 +403,14 @@ app.post('/api/admin/scrape', authMiddleware, adminMiddleware, async (req, res) 
       scrapeMaxBetAll().catch(e => ({ error: e.message })),
       scrapeCryptoAll().catch(e => ({ error: e.message })),
     ])
-    
-    res.json({ ok: true, xg, odds, nba, maxbet, crypto })
+
+    res.json({ ok: true, xg, odds, nba, maxbet, crypto, browser: browserResult })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
 })
 
-// Admin: Generiši pikove za danas/sutra
-app.post('/api/admin/generate-picks', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/admin/generate-picks', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
   try {
     const { generatePicks } = await import('./engine/picks-generator.mjs')
     const picks = await generatePicks()
@@ -420,8 +420,7 @@ app.post('/api/admin/generate-picks', authMiddleware, adminMiddleware, async (re
   }
 })
 
-// Admin: Ažuriraj rezultate
-app.post('/api/admin/update-results', authMiddleware, adminMiddleware, async (req, res) => {
+app.post('/api/admin/update-results', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
   try {
     const { updateResults } = await import('./engine/results-updater.mjs')
     const result = await updateResults()
@@ -431,8 +430,7 @@ app.post('/api/admin/update-results', authMiddleware, adminMiddleware, async (re
   }
 })
 
-// Public: Trenutni value betovi (premium only)
-app.get('/api/value-bets', authMiddleware, async (req, res) => {
+app.get('/api/value-bets', authMiddleware, loadUser, async (req, res) => {
   if (req.user.tier !== 'premium' && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Premium only' })
   }
@@ -449,14 +447,17 @@ app.get('/api/value-bets', authMiddleware, async (req, res) => {
 // START
 // ══════════════════════════════════════════
 
-const PORT = 3001
-app.listen(PORT, '0.0.0.0', () => {
+const PORT = process.env.PORT || 3001
+app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 BetAnalitika API running on http://0.0.0.0:${PORT}`)
-  
-  // Init users
-  loadUsers()
-  console.log('👤 Users initialized')
-  
-  const db = loadDB()
-  console.log(`📊 Database: ${db.picks.length} picks total`)
+  console.log('📦 Using Supabase backend')
+
+  // Test Supabase connection
+  const { error } = await supabase.from('profiles').select('id').limit(1)
+  if (error) {
+    console.log(`⚠️ Supabase connection issue: ${error.message}`)
+    console.log('   Tables may need to be created. Run: server/migration.sql in Supabase Dashboard')
+  } else {
+    console.log('✅ Supabase connected successfully')
+  }
 })
