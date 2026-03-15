@@ -1,20 +1,41 @@
 {
   "jobs": [
     {
-      "id": "morning-scrape",
-      "description": "Scrape podatke i generiši pikove",
+      "id": "morning-football",
+      "description": "Scrape fudbal podatke + generiši fudbal pikove",
       "schedule": "10:00",
+      "sport": "football",
       "actions": [
-        { "type": "scrape", "endpoint": "POST /api/admin/scrape" },
-        { "type": "generate", "endpoint": "POST /api/admin/generate-picks" }
+        { "type": "scrape", "endpoint": "POST /api/admin/scrape", "params": { "sport": "football" } },
+        { "type": "generate", "endpoint": "POST /api/admin/generate-picks", "params": { "sport": "football" } }
       ]
     },
     {
-      "id": "evening-results",
-      "description": "Ažuriraj rezultate završenih mečeva",
-      "schedule": "23:00",
+      "id": "afternoon-nba",
+      "description": "Scrape NBA podatke + generiši NBA pikove (mečevi počinju 01:00-04:30h CET)",
+      "schedule": "18:00",
+      "sport": "basketball",
       "actions": [
-        { "type": "update-results", "endpoint": "POST /api/admin/update-results" }
+        { "type": "scrape", "endpoint": "POST /api/admin/scrape", "params": { "sport": "basketball" } },
+        { "type": "generate", "endpoint": "POST /api/admin/generate-picks", "params": { "sport": "basketball" } }
+      ]
+    },
+    {
+      "id": "evening-football-results",
+      "description": "Ažuriraj rezultate fudbal mečeva (većina se završi do 23h)",
+      "schedule": "23:30",
+      "sport": "football",
+      "actions": [
+        { "type": "update-results", "endpoint": "POST /api/admin/update-results", "params": { "sport": "football" } }
+      ]
+    },
+    {
+      "id": "morning-nba-results",
+      "description": "Ažuriraj NBA rezultate (mečevi se završe 05:00-07:00h CET)",
+      "schedule": "08:00",
+      "sport": "basketball",
+      "actions": [
+        { "type": "update-results", "endpoint": "POST /api/admin/update-results", "params": { "sport": "basketball" } }
       ]
     }
   ],
