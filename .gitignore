@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+server/data/
+server/picks-db.json
+server/users.json
+*.log
+.DS_Store

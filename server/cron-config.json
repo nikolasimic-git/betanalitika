@@ -1,0 +1,23 @@
+{
+  "jobs": [
+    {
+      "id": "morning-scrape",
+      "description": "Scrape podatke i generiši pikove",
+      "schedule": "10:00",
+      "actions": [
+        { "type": "scrape", "endpoint": "POST /api/admin/scrape" },
+        { "type": "generate", "endpoint": "POST /api/admin/generate-picks" }
+      ]
+    },
+    {
+      "id": "evening-results",
+      "description": "Ažuriraj rezultate završenih mečeva",
+      "schedule": "23:00",
+      "actions": [
+        { "type": "update-results", "endpoint": "POST /api/admin/update-results" }
+      ]
+    }
+  ],
+  "serverUrl": "http://localhost:3001",
+  "timezone": "Europe/Belgrade"
+}
