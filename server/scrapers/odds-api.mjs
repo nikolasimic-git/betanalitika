@@ -7,6 +7,7 @@ import axios from 'axios'
 import { writeFileSync, readFileSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
+import { supabase } from '../supabase-client.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_FILE = join(__dirname, '..', 'data', 'odds-data.json')
@@ -23,7 +24,7 @@ if (existsSync(envPath)) {
   }
 }
 
-const API_KEY = process.env.ODDS_API_KEY || 'bd408313cbe09165611b17745550ac3dfac20fb80938a8e672fd7a0b3f061e17'
+const API_KEY = process.env.ODDS_API_KEY
 const BASE_URL = 'https://api.odds-api.io/v3'
 
 // Kladionice koje pratimo — prioritet
@@ -291,6 +292,30 @@ export async function scrapeOdds() {
 
   writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
   console.log(`✅ Odds podaci sačuvani: ${allEvents.length} mečeva (${data.source})`)
+
+  // Store in Supabase odds_cache
+  try {
+    for (const match of allEvents) {
+      if (!match.odds) continue
+      for (const [bookmaker, odds] of Object.entries(match.odds)) {
+        await supabase.from('odds_cache').upsert({
+          match_id: match.id,
+          home_team: match.homeTeam,
+          away_team: match.awayTeam,
+          league: match.league,
+          sport: match.sportType || match.sport,
+          bookmaker,
+          odds,
+          commence_time: match.commenceTime || match.date,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'match_id,bookmaker' })
+      }
+    }
+    console.log(`✅ Odds cached in Supabase for ${allEvents.length} matches`)
+  } catch (cacheErr) {
+    console.log(`⚠️ Odds cache error: ${cacheErr.message}`)
+  }
+
   return data
 }
 

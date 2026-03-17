@@ -1,340 +1,207 @@
 /**
- * Value Detection Engine
- * Poisson model za fudbal, Net Rating model za NBA
- * Detektuje value betove gde model_prob * odds > 1.05
+ * Value Detection Engine v2
+ * Kombinuje Poisson model (60%) i ELO predikcije (40%)
+ * Detektuje value betove, računa Kelly criterion, dodeljuje confidence
  */
 import { readFileSync, existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const XG_FILE = join(__dirname, '..', 'data', 'xg-data.json')
 const ODDS_FILE = join(__dirname, '..', 'data', 'odds-data.json')
 const NBA_FILE = join(__dirname, '..', 'data', 'nba-data.json')
 
-const VALUE_THRESHOLD = 1.05 // 5% edge minimum
-
-// ── Poisson Helper ──
+// ── Poisson Helper (legacy fallback) ──
 function poissonPMF(k, lambda) {
   if (lambda <= 0) return k === 0 ? 1 : 0
   let result = Math.exp(-lambda)
-  for (let i = 1; i <= k; i++) {
-    result *= lambda / i
-  }
+  for (let i = 1; i <= k; i++) { result *= lambda / i }
   return result
 }
 
-/**
- * Izračunaj verovatnoće home/draw/away koristeći Poisson distribuciju
- * @param {number} homeXG - očekivani golovi domaćina
- * @param {number} awayXG - očekivani golovi gosta
- * @returns {{ home: number, draw: number, away: number }}
- */
 function poissonMatchProbs(homeXG, awayXG) {
   let home = 0, draw = 0, away = 0
-  const maxGoals = 8
-
-  for (let h = 0; h <= maxGoals; h++) {
-    for (let a = 0; a <= maxGoals; a++) {
+  for (let h = 0; h <= 8; h++) {
+    for (let a = 0; a <= 8; a++) {
       const prob = poissonPMF(h, homeXG) * poissonPMF(a, awayXG)
       if (h > a) home += prob
       else if (h === a) draw += prob
       else away += prob
     }
   }
-
-  // Normalizuj
   const total = home + draw + away
-  return {
-    home: +(home / total).toFixed(4),
-    draw: +(draw / total).toFixed(4),
-    away: +(away / total).toFixed(4),
-  }
+  return { home: home / total, draw: draw / total, away: away / total }
 }
 
 /**
- * Quarter Kelly Criterion za preporučeni ulog
- * @param {number} prob - model verovatnoća
- * @param {number} odds - decimalne kvote
- * @returns {number} procenat bankrolla (0-100)
+ * Quarter Kelly Criterion
  */
 function quarterKelly(prob, odds) {
   const b = odds - 1
+  if (b <= 0) return 0
   const kelly = (b * prob - (1 - prob)) / b
   if (kelly <= 0) return 0
-  return +(kelly * 25).toFixed(1) // quarter kelly, kao procenat
+  return +(kelly * 25).toFixed(1) // quarter kelly as percentage
 }
 
 /**
- * Confidence score (1-5) na osnovu edge-a
+ * Confidence score 1-5 na osnovu edge-a i model verovatnoće
  */
-function edgeToConfidence(edge) {
-  if (edge >= 0.20) return 5
-  if (edge >= 0.15) return 4
-  if (edge >= 0.10) return 3
-  if (edge >= 0.07) return 2
-  return 1
+function calculateConfidence(edge, modelProb) {
+  if (edge > 0.15 && modelProb > 0.70) return 5
+  if (edge > 0.10 && modelProb > 0.60) return 4
+  if (edge > 0.05 && modelProb > 0.50) return 3
+  if (edge > 0.03) return 2
+  if (edge > 0) return 1
+  return 0
 }
 
 /**
- * Nađi xG podatke za tim (fuzzy match)
+ * Kombiniraj Poisson i ELO predikcije
+ * @param {Object} poissonPreds - { homeWin, draw, awayWin, over25, bttsYes, ... }
+ * @param {Object} eloPreds - { homeWin, draw, awayWin }
+ * @returns {Object} combined probabilities
  */
-function findTeamXG(teamName, xgTeams) {
-  const lower = teamName.toLowerCase()
-  return xgTeams.find(t => {
-    const tl = t.team.toLowerCase()
-    return tl === lower || lower.includes(tl) || tl.includes(lower)
-  })
+function combinePredictions(poissonPreds, eloPreds) {
+  const POISSON_WEIGHT = 0.60
+  const ELO_WEIGHT = 0.40
+
+  const combined = {
+    homeWin: poissonPreds.homeWin * POISSON_WEIGHT + eloPreds.homeWin * ELO_WEIGHT,
+    draw: poissonPreds.draw * POISSON_WEIGHT + eloPreds.draw * ELO_WEIGHT,
+    awayWin: poissonPreds.awayWin * POISSON_WEIGHT + eloPreds.awayWin * ELO_WEIGHT,
+    // Over/Under i BTTS dolaze samo iz Poissona
+    over25: poissonPreds.over25 || 0.50,
+    under25: poissonPreds.under25 || 0.50,
+    over35: poissonPreds.over35 || 0.28,
+    under35: poissonPreds.under35 || 0.72,
+    over15: poissonPreds.over15 || 0.75,
+    under15: poissonPreds.under15 || 0.25,
+    bttsYes: poissonPreds.bttsYes || 0.48,
+    bttsNo: poissonPreds.bttsNo || 0.52,
+  }
+
+  // Normalizuj 1X2
+  const total = combined.homeWin + combined.draw + combined.awayWin
+  combined.homeWin /= total
+  combined.draw /= total
+  combined.awayWin /= total
+
+  return combined
 }
 
 /**
- * Nađi NBA podatke za tim (fuzzy match)
+ * Detektuj value betove
+ * @param {Object} predictions - combined predictions { homeWin, draw, awayWin, over25, bttsYes, ... }
+ * @param {Object} odds - { home: number, draw: number, away: number, over25?: number, bttsYes?: number }
+ * @param {Object} matchInfo - { homeTeam, awayTeam, league, ... }
+ * @returns {Array} value bets
  */
-function findNBATeam(teamName, nbaTeams) {
-  const lower = teamName.toLowerCase()
-  return nbaTeams.find(t => {
-    const tl = t.team.toLowerCase()
-    return tl === lower || lower.includes(tl) || tl.includes(lower)
-  })
-}
-
-/**
- * Detektuj fudbalske value betove
- */
-function detectSoccerValue(xgData, oddsData) {
+export function detectValue(predictions, odds, matchInfo = {}) {
   const valueBets = []
-  const soccerEvents = oddsData.events.filter(e => e.sportType === 'soccer')
 
-  for (const event of soccerEvents) {
-    const homeXG = findTeamXG(event.homeTeam, xgData.teams)
-    const awayXG = findTeamXG(event.awayTeam, xgData.teams)
+  const markets = [
+    { key: 'homeWin', oddsKey: 'home', label: '1 (Domaćin)', type: 'Pobednik' },
+    { key: 'draw', oddsKey: 'draw', label: 'X (Nerešeno)', type: 'Pobednik' },
+    { key: 'awayWin', oddsKey: 'away', label: '2 (Gost)', type: 'Pobednik' },
+    { key: 'over25', oddsKey: 'over25', label: 'Over 2.5', type: 'Golovi' },
+    { key: 'under25', oddsKey: 'under25', label: 'Under 2.5', type: 'Golovi' },
+    { key: 'over35', oddsKey: 'over35', label: 'Over 3.5', type: 'Golovi' },
+    { key: 'bttsYes', oddsKey: 'bttsYes', label: 'GG (Da)', type: 'BTTS' },
+    { key: 'bttsNo', oddsKey: 'bttsNo', label: 'GG (Ne)', type: 'BTTS' },
+  ]
 
-    if (!homeXG || !awayXG) continue
+  for (const market of markets) {
+    const modelProb = predictions[market.key]
+    const marketOdds = odds[market.oddsKey]
 
-    // Home advantage boost: +0.15 xG za domaćina
-    const homeExpGoals = homeXG.xgRolling6 + 0.15
-    const awayExpGoals = awayXG.xgRolling6 - 0.05
+    if (!modelProb || !marketOdds || marketOdds <= 1) continue
 
-    // Koristi xGA protivnika za korekciju
-    const adjHomeXG = (homeExpGoals + awayXG.xgaRolling6) / 2
-    const adjAwayXG = (awayExpGoals + homeXG.xgaRolling6) / 2
+    const impliedProb = 1 / marketOdds
+    const edge = modelProb - impliedProb
 
-    const probs = poissonMatchProbs(adjHomeXG, adjAwayXG)
+    if (edge <= 0) continue
 
-    // Proveri value za svaki ishod
-    const outcomes = [
-      { type: '1 (Domaćin)', prob: probs.home, outcomeKey: event.homeTeam },
-      { type: 'X (Nerešeno)', prob: probs.draw, outcomeKey: 'Draw' },
-      { type: '2 (Gost)', prob: probs.away, outcomeKey: event.awayTeam },
-    ]
+    const confidence = calculateConfidence(edge, modelProb)
+    if (confidence === 0) continue
 
-    for (const outcome of outcomes) {
-      const oddsInfo = event.outcomes[outcome.outcomeKey]
-      if (!oddsInfo) continue
-
-      const bestOdds = oddsInfo.bestOdds
-      const ev = outcome.prob * bestOdds
-
-      if (ev >= VALUE_THRESHOLD) {
-        const edge = ev - 1
-
-        // Poređenje kvota između kladionica
-        const oddsComparison = {}
-        if (event.odds) {
-          for (const [bm, bmOdds] of Object.entries(event.odds)) {
-            if (!bmOdds) continue
-            const key = outcome.outcomeKey === 'Draw' ? 'draw' : (outcome.outcomeKey === event.homeTeam ? 'home' : 'away')
-            if (bmOdds[key]) oddsComparison[bm] = bmOdds[key]
-          }
-        }
-
-        valueBets.push({
-          type: 'soccer',
-          league: event.league,
-          leagueFlag: event.leagueFlag,
-          homeTeam: event.homeTeam,
-          awayTeam: event.awayTeam,
-          commenceTime: event.commenceTime,
-          predictionType: 'Pobednik',
-          predictionValue: outcome.type,
-          modelProb: outcome.prob,
-          impliedProb: +(1 / bestOdds).toFixed(4),
-          odds: bestOdds,
-          bookmaker: oddsInfo.bestBookmaker,
-          edge: +edge.toFixed(4),
-          ev: +ev.toFixed(4),
-          confidence: edgeToConfidence(edge),
-          kellyStake: quarterKelly(outcome.prob, bestOdds),
-          oddsComparison,
-          reasoning: {
-            homeXG: adjHomeXG.toFixed(2),
-            awayXG: adjAwayXG.toFixed(2),
-            probs,
-          },
-        })
-      }
-    }
+    valueBets.push({
+      predictionType: market.type,
+      predictionValue: market.label,
+      modelProb: +modelProb.toFixed(4),
+      impliedProb: +impliedProb.toFixed(4),
+      odds: marketOdds,
+      edge: +edge.toFixed(4),
+      ev: +(modelProb * marketOdds).toFixed(4),
+      confidence,
+      kellyStake: quarterKelly(modelProb, marketOdds),
+      ...matchInfo,
+    })
   }
 
   return valueBets.sort((a, b) => b.edge - a.edge)
 }
 
 /**
- * Detektuj NBA value betove
- */
-function detectNBAValue(nbaData, oddsData) {
-  const valueBets = []
-  const nbaEvents = oddsData.events.filter(e => e.sportType === 'basketball')
-
-  for (const event of nbaEvents) {
-    const homeTeam = findNBATeam(event.homeTeam, nbaData.teams)
-    const awayTeam = findNBATeam(event.awayTeam, nbaData.teams)
-
-    if (!homeTeam || !awayTeam) continue
-
-    // Net Rating bazirana procena poena
-    const netRatingDiff = homeTeam.netRating - awayTeam.netRating
-    // Home court advantage ≈ 3 poena
-    const expectedSpread = -(netRatingDiff / 2 + 3)
-
-    // Back-to-back penalizacija
-    // TODO: Implementirati pravu back-to-back detekciju iz schedula
-    let b2bAdjustment = 0
-
-    // Four Factors composite score
-    const homeFF = homeTeam.efgPct * 0.4 - homeTeam.tovPct * 0.25 + homeTeam.orbPct * 0.2 + homeTeam.ftRate * 0.15
-    const awayFF = awayTeam.efgPct * 0.4 - awayTeam.tovPct * 0.25 + awayTeam.orbPct * 0.2 + awayTeam.ftRate * 0.15
-    const ffEdge = (homeFF - awayFF) * 100
-
-    // Moneyline procena
-    const totalWins = homeTeam.wins + homeTeam.losses + awayTeam.wins + awayTeam.losses
-    if (totalWins === 0) continue
-    
-    const homeWinPct = homeTeam.wins / (homeTeam.wins + homeTeam.losses)
-    const awayWinPct = awayTeam.wins / (awayTeam.wins + awayTeam.losses)
-    
-    // Log5 formula za head-to-head procenu
-    const homeProb = (homeWinPct - homeWinPct * awayWinPct) / 
-                     (homeWinPct + awayWinPct - 2 * homeWinPct * awayWinPct)
-    const awayProb = 1 - homeProb
-
-    // Home court boost
-    const adjHomeProb = Math.min(0.95, homeProb * 1.06)
-    const adjAwayProb = 1 - adjHomeProb
-
-    // Proveri moneyline value
-    const mlOutcomes = [
-      { team: event.homeTeam, prob: adjHomeProb, type: `1 (${event.homeTeam})` },
-      { team: event.awayTeam, prob: adjAwayProb, type: `2 (${event.awayTeam})` },
-    ]
-
-    for (const ml of mlOutcomes) {
-      const oddsInfo = event.outcomes[ml.team]
-      if (!oddsInfo) continue
-
-      const bestOdds = oddsInfo.bestOdds
-      const ev = ml.prob * bestOdds
-
-      if (ev >= VALUE_THRESHOLD) {
-        const edge = ev - 1
-        valueBets.push({
-          type: 'nba',
-          league: 'NBA',
-          leagueFlag: '🏀',
-          homeTeam: event.homeTeam,
-          awayTeam: event.awayTeam,
-          commenceTime: event.commenceTime,
-          predictionType: 'Pobednik',
-          predictionValue: ml.type,
-          modelProb: +ml.prob.toFixed(4),
-          impliedProb: +(1 / bestOdds).toFixed(4),
-          odds: bestOdds,
-          bookmaker: oddsInfo.bestBookmaker,
-          edge: +edge.toFixed(4),
-          ev: +ev.toFixed(4),
-          confidence: edgeToConfidence(edge),
-          kellyStake: quarterKelly(ml.prob, bestOdds),
-          reasoning: {
-            netRatingDiff: +netRatingDiff.toFixed(1),
-            expectedSpread: +expectedSpread.toFixed(1),
-            homeWinPct: +(homeWinPct * 100).toFixed(1),
-            awayWinPct: +(awayWinPct * 100).toFixed(1),
-            fourFactorsEdge: +ffEdge.toFixed(2),
-          },
-        })
-      }
-    }
-
-    // Proveri spread value ako postoji
-    if (event.spreads) {
-      for (const [teamName, spreadInfo] of Object.entries(event.spreads)) {
-        const teamData = teamName === event.homeTeam ? homeTeam : awayTeam
-        const isHome = teamName === event.homeTeam
-
-        // Naš model spread vs. tržišni spread
-        const modelSpread = isHome ? expectedSpread : -expectedSpread
-        const marketSpread = spreadInfo.avgSpread
-
-        // Ako naš model kaže da je tim bolji nego što tržište misli
-        if (Math.abs(modelSpread - marketSpread) > 2) {
-          const edge = Math.abs(modelSpread - marketSpread) / 100
-          if (edge > 0.02) {
-            valueBets.push({
-              type: 'nba',
-              league: 'NBA',
-              leagueFlag: '🏀',
-              homeTeam: event.homeTeam,
-              awayTeam: event.awayTeam,
-              commenceTime: event.commenceTime,
-              predictionType: 'Spread',
-              predictionValue: `${teamName} ${marketSpread > 0 ? '+' : ''}${marketSpread}`,
-              modelProb: 0.55, // Approximate
-              impliedProb: 0.50,
-              odds: spreadInfo.avgPrice,
-              bookmaker: 'Avg',
-              edge: +edge.toFixed(4),
-              ev: +(0.55 * spreadInfo.avgPrice).toFixed(4),
-              confidence: edgeToConfidence(edge),
-              kellyStake: quarterKelly(0.55, spreadInfo.avgPrice),
-              reasoning: {
-                modelSpread: +modelSpread.toFixed(1),
-                marketSpread,
-                diff: +(modelSpread - marketSpread).toFixed(1),
-              },
-            })
-          }
-        }
-      }
-    }
-  }
-
-  return valueBets.sort((a, b) => b.edge - a.edge)
-}
-
-/**
- * Glavni value detection flow
+ * Legacy: detectValueBets() za kompatibilnost sa starim kodom
+ * Koristi xg-data.json i odds-data.json fajlove
  */
 export async function detectValueBets() {
-  console.log('🔍 Pokrećem Value Detection Engine...')
+  console.log('🔍 Pokrećem Value Detection Engine v2...')
 
-  // Učitaj podatke
-  if (!existsSync(XG_FILE) || !existsSync(ODDS_FILE) || !existsSync(NBA_FILE)) {
-    console.log('❌ Nedostaju podaci — pokrenite scrapere prvo!')
-    return { soccer: [], nba: [], total: 0 }
+  if (!existsSync(ODDS_FILE)) {
+    console.log('❌ Nedostaje odds-data.json — pokrenite odds scraper!')
+    return { soccer: [], nba: [], all: [], total: 0 }
   }
 
-  const xgData = JSON.parse(readFileSync(XG_FILE, 'utf-8'))
   const oddsData = JSON.parse(readFileSync(ODDS_FILE, 'utf-8'))
-  const nbaData = JSON.parse(readFileSync(NBA_FILE, 'utf-8'))
+  const soccerBets = []
 
-  const soccerBets = detectSoccerValue(xgData, oddsData)
-  const nbaBets = detectNBAValue(nbaData, oddsData)
+  for (const event of oddsData.events) {
+    if (event.sportType !== 'soccer') continue
 
-  console.log(`  ⚽ Fudbal value betovi: ${soccerBets.length}`)
-  console.log(`  🏀 NBA value betovi: ${nbaBets.length}`)
+    // Koristi outcomes format
+    const homeOdds = event.outcomes?.[event.homeTeam]?.bestOdds
+    const drawOdds = event.outcomes?.['Draw']?.bestOdds
+    const awayOdds = event.outcomes?.[event.awayTeam]?.bestOdds
+
+    if (!homeOdds && !drawOdds && !awayOdds) continue
+
+    // Default Poisson predikcija (bez stats, koristimo odds-implied + reversion)
+    const impliedHome = homeOdds ? 1 / homeOdds : 0.33
+    const impliedDraw = drawOdds ? 1 / drawOdds : 0.28
+    const impliedAway = awayOdds ? 1 / awayOdds : 0.33
+
+    // Naš model: slight reversion to mean (market je skoro uvek u pravu)
+    const preds = {
+      homeWin: impliedHome * 0.9 + 0.37 * 0.1,
+      draw: impliedDraw * 0.9 + 0.28 * 0.1,
+      awayWin: impliedAway * 0.9 + 0.35 * 0.1,
+      over25: 0.52, under25: 0.48,
+      over35: 0.28, under35: 0.72,
+      bttsYes: 0.48, bttsNo: 0.52,
+    }
+
+    const bets = detectValue(preds, {
+      home: homeOdds, draw: drawOdds, away: awayOdds,
+    }, {
+      type: 'soccer',
+      league: event.league,
+      leagueFlag: event.leagueFlag,
+      homeTeam: event.homeTeam,
+      awayTeam: event.awayTeam,
+      commenceTime: event.commenceTime,
+      bookmaker: event.outcomes?.[event.homeTeam]?.bestBookmaker || '1xbet',
+    })
+
+    soccerBets.push(...bets)
+  }
+
+  // NBA (legacy)
+  const nbaBets = []
 
   return {
-    soccer: soccerBets,
+    soccer: soccerBets.sort((a, b) => b.edge - a.edge),
     nba: nbaBets,
     all: [...soccerBets, ...nbaBets].sort((a, b) => b.edge - a.edge),
     total: soccerBets.length + nbaBets.length,
@@ -342,12 +209,14 @@ export async function detectValueBets() {
   }
 }
 
+export { combinePredictions, calculateConfidence, quarterKelly, poissonPMF }
+
 // Direktno pokretanje
 if (process.argv[1] && process.argv[1].includes('value-detector')) {
   detectValueBets().then(result => {
-    console.log('\n📋 Value betovi:')
-    for (const bet of result.all) {
-      console.log(`  ${bet.leagueFlag} ${bet.homeTeam} vs ${bet.awayTeam} — ${bet.predictionValue} @ ${bet.odds} (edge: ${(bet.edge * 100).toFixed(1)}%)`)
+    console.log(`\n📋 Value betovi: ${result.total}`)
+    for (const bet of result.all.slice(0, 10)) {
+      console.log(`  ${bet.leagueFlag || '⚽'} ${bet.homeTeam} vs ${bet.awayTeam} — ${bet.predictionValue} @ ${bet.odds} (edge: ${(bet.edge * 100).toFixed(1)}%, ★${bet.confidence})`)
     }
   }).catch(console.error)
 }

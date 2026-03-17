@@ -1,4 +1,28 @@
 import { supabase } from './lib/supabase'
+import type { Pick } from './types'
+
+function mapPick(p: any): Pick {
+  return {
+    id: p.id,
+    matchDate: p.match_date ?? p.matchDate,
+    league: p.league,
+    leagueFlag: p.league_flag ?? p.leagueFlag,
+    homeTeam: p.home_team ?? p.homeTeam,
+    awayTeam: p.away_team ?? p.awayTeam,
+    kickOff: p.kick_off ?? p.kickOff,
+    predictionType: p.prediction_type ?? p.predictionType,
+    predictionValue: p.prediction_value ?? p.predictionValue,
+    confidence: p.confidence,
+    reasoning: p.reasoning,
+    odds: p.odds,
+    bookmaker: p.bookmaker,
+    affiliateUrl: p.affiliate_url ?? p.affiliateUrl,
+    result: p.result,
+    isFree: p.is_free ?? p.isFree,
+    locked: p.locked,
+    isSigurica: p.isSigurica,
+  }
+}
 
 // ── Fallback API base for admin/auth operations that still use Express ──
 export const API_BASE = import.meta.env.DEV 
@@ -61,23 +85,48 @@ export async function fetchTodayPicks(token?: string | null, sport = 'all') {
     } catch (_) {}
   }
 
-  const result = picks.map((p: any) => {
-    if (!p.is_free && !isPremium) {
-      return {
-        ...p,
-        reasoning: '🔒 Premium pikovi su dostupni samo za premium korisnike.',
-        prediction_value: '🔒',
-        odds: 0,
-        locked: true,
-      }
-    }
-    return { ...p, locked: false }
-  })
+  if (isPremium) {
+    // Premium: all picks, mark highest confidence as sigurica
+    const sorted = [...picks].sort((a: any, b: any) => (b.confidence ?? 0) - (a.confidence ?? 0))
+    const result = sorted.map((p: any, i: number) => ({
+      ...p,
+      locked: false,
+      isSigurica: i === 0,
+    }))
+    return { picks: result.map(mapPick), date: today }
+  }
 
-  return { picks: result, date: today }
+  // Free: 2 random free picks, rest locked
+  const freePicks = picks.filter((p: any) => p.is_free)
+  const premiumOnlyPicks = picks.filter((p: any) => !p.is_free)
+
+  // Shuffle and pick 2
+  const shuffled = [...freePicks].sort(() => Math.random() - 0.5)
+  const selected = shuffled.slice(0, 2)
+  const selectedIds = new Set(selected.map((p: any) => p.id))
+
+  const result = [
+    ...selected.map((p: any) => ({ ...p, locked: false, isFree: true })),
+    ...freePicks.filter((p: any) => !selectedIds.has(p.id)).map((p: any) => ({
+      ...p,
+      reasoning: '🔒 Premium pikovi su dostupni samo za premium korisnike.',
+      prediction_value: '🔒',
+      odds: 0,
+      locked: true,
+    })),
+    ...premiumOnlyPicks.map((p: any) => ({
+      ...p,
+      reasoning: '🔒 Premium pikovi su dostupni samo za premium korisnike.',
+      prediction_value: '🔒',
+      odds: 0,
+      locked: true,
+    })),
+  ]
+
+  return { picks: result.map(mapPick), date: today }
 }
 
-export async function fetchHistory(page = 1, limit = 20, sport = 'all') {
+export async function fetchHistory(page = 1, limit = 20, sport = 'all', maxDays?: number) {
   const offset = (page - 1) * limit
 
   let query = supabase
@@ -86,6 +135,11 @@ export async function fetchHistory(page = 1, limit = 20, sport = 'all') {
     .neq('result', 'pending')
     .order('match_date', { ascending: false })
     .range(offset, offset + limit - 1)
+
+  if (maxDays) {
+    const cutoff = new Date(Date.now() - maxDays * 86400000).toISOString().split('T')[0]
+    query = query.gte('match_date', cutoff)
+  }
 
   if (sport && sport !== 'all') {
     query = query.eq('sport', sport)
@@ -96,7 +150,7 @@ export async function fetchHistory(page = 1, limit = 20, sport = 'all') {
   if (error) return { picks: [], total: 0, page, totalPages: 0 }
 
   return {
-    picks: picks || [],
+    picks: (picks || []).map(mapPick),
     total: count || 0,
     page,
     totalPages: Math.ceil((count || 0) / limit),
@@ -111,7 +165,7 @@ export async function fetchStats(sport = 'all') {
   }
 
   const { data: allPicks, error } = await query
-  if (error) return { totalPicks: 0, won: 0, lost: 0, pending: 0, winRate: 0, roi: 0, currentStreak: 0, streakType: 'W' }
+  if (error) return { totalPicks: 0, won: 0, lost: 0, pending: 0, winRate: 0, roi: 0, currentStreak: 0, streakType: 'W' as const }
 
   const resolved = (allPicks || []).filter((p: any) => p.result !== 'pending')
   const won = resolved.filter((p: any) => p.result === 'won')

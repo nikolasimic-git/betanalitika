@@ -15,6 +15,8 @@ export interface Pick {
   affiliateUrl: string
   result: 'pending' | 'won' | 'lost'
   isFree: boolean
+  locked?: boolean
+  isSigurica?: boolean
 }
 
 export interface PickStats {

@@ -11,7 +11,7 @@ interface User {
 interface AuthCtx {
   user: User | null
   token: string | null
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<void>
   register: (email: string, password: string, name: string) => Promise<void>
   logout: () => void
   isPremium: boolean
@@ -26,18 +26,18 @@ const AuthContext = createContext<AuthCtx | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(localStorage.getItem('ba_token'))
+  const [token, setToken] = useState<string | null>(localStorage.getItem('ba_token') || sessionStorage.getItem('ba_token'))
 
   useEffect(() => {
     if (token) {
       fetch(`${API}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : Promise.reject())
         .then(d => setUser(d.user))
-        .catch(() => { setToken(null); localStorage.removeItem('ba_token') })
+        .catch(() => { setToken(null); localStorage.removeItem('ba_token'); sessionStorage.removeItem('ba_token') })
     }
   }, [token])
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, rememberMe?: boolean) => {
     const res = await fetch(`${API}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -50,7 +50,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json()
     setToken(data.token)
     setUser(data.user)
-    localStorage.setItem('ba_token', data.token)
+    if (rememberMe) {
+      localStorage.setItem('ba_token', data.token)
+    } else {
+      sessionStorage.setItem('ba_token', data.token)
+    }
   }
 
   const register = async (email: string, password: string, name: string) => {
@@ -79,6 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null)
     setUser(null)
     localStorage.removeItem('ba_token')
+    sessionStorage.removeItem('ba_token')
   }
 
   return (

@@ -229,7 +229,7 @@ export default function Admin() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-8">
+    <div className="animate-fade-in mx-auto max-w-6xl px-4 py-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="flex items-center gap-2 text-2xl font-bold">
           <Shield className="h-6 w-6 text-accent" /> Admin Panel

@@ -6,9 +6,12 @@ import { fetchTodayPicks, fetchStats } from '../api'
 import { useAuth } from '../auth'
 import { Pick, PickStats } from '../types'
 import { CalendarDays, RefreshCw, Loader2, AlertCircle } from 'lucide-react'
+import AdBanner from '../components/AdBanner'
+import AdSidebar from '../components/AdSidebar'
+import PickCardSkeleton from '../components/PickCardSkeleton'
 
 export default function Picks() {
-  const { token } = useAuth()
+  const { token, isPremium } = useAuth()
   const [picks, setPicks] = useState<(Pick & { locked?: boolean })[]>([])
   const [stats, setStats] = useState<PickStats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -46,15 +49,23 @@ export default function Picks() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-32">
-        <Loader2 className="h-8 w-8 animate-spin text-accent" />
-        <span className="ml-3 text-muted">Učitavam pikove...</span>
+      <div className="animate-fade-in mx-auto max-w-4xl px-4 py-8">
+        <div className="mb-6">
+          <div className="h-4 w-40 rounded bg-card animate-shimmer mb-2" />
+          <div className="h-8 w-60 rounded bg-card animate-shimmer" />
+        </div>
+        <div className="grid gap-4">
+          <PickCardSkeleton />
+          <PickCardSkeleton />
+          <PickCardSkeleton />
+          <PickCardSkeleton />
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8">
+    <div className="animate-fade-in mx-auto max-w-4xl px-4 py-8">
       <div className="mb-6 flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2 text-muted mb-1">
@@ -63,7 +74,7 @@ export default function Picks() {
           </div>
           <h1 className="text-3xl font-bold">Današnji pikovi</h1>
         </div>
-        <button onClick={loadData} className="mt-2 rounded-lg border border-border p-2 text-muted hover:text-white">
+        <button onClick={loadData} className="mt-2 rounded-lg border border-border p-2 text-muted hover:text-white" title="Osveži pikove">
           <RefreshCw className="h-5 w-5" />
         </button>
       </div>
@@ -87,39 +98,56 @@ export default function Picks() {
         </div>
       )}
 
-      {/* Free picks */}
-      {freePicks.length > 0 && (
-        <div className="mt-6">
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
-            🆓 Besplatni pikovi
-            <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
-              {freePicks.length}
-            </span>
-          </h2>
-          <div className="grid gap-4">
-            {freePicks.map((pick) => (
-              <PickCard key={pick.id} pick={pick} />
-            ))}
-          </div>
-        </div>
-      )}
+      <div className={`mt-6 ${!isPremium ? 'lg:flex lg:gap-6' : ''}`}>
+        <div className={!isPremium ? 'lg:flex-1 min-w-0' : ''}>
+          {/* Free picks */}
+          {freePicks.length > 0 && (
+            <div>
+              <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
+                🆓 Besplatni pikovi
+                <span className="rounded-full bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
+                  {freePicks.length}
+                </span>
+              </h2>
+              <div className="grid gap-4">
+                {freePicks.map((pick, i) => (
+                  <div key={pick.id}>
+                    <PickCard pick={pick} index={i} />
+                    {!isPremium && (i + 1) % 2 === 0 && i < freePicks.length - 1 && (
+                      <div className="mt-4"><AdBanner /></div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-      {/* Premium picks */}
-      {premiumPicks.length > 0 && (
-        <div className="mt-10">
-          <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
-            💎 Premium pikovi
-            <span className="rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-medium text-gold">
-              {premiumPicks.length}
-            </span>
-          </h2>
-          <div className="grid gap-4">
-            {premiumPicks.map((pick) => (
-              <PickCard key={pick.id} pick={pick} locked={pick.locked} />
-            ))}
-          </div>
+          {/* Premium picks */}
+          {premiumPicks.length > 0 && (
+            <div className="mt-10">
+              <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
+                💎 Premium pikovi
+                <span className="rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-medium text-gold">
+                  {premiumPicks.length}
+                </span>
+              </h2>
+              <div className="grid gap-4">
+                {premiumPicks.map((pick, i) => (
+                  <div key={pick.id}>
+                    <PickCard pick={pick} locked={pick.locked} index={i} />
+                    {!isPremium && (i + 1) % 2 === 0 && i < premiumPicks.length - 1 && (
+                      <div className="mt-4"><AdBanner /></div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
-      )}
+
+        {/* Ad Sidebar - free users only, desktop */}
+        {!isPremium && <div className="lg:w-[280px] lg:shrink-0 mt-6 lg:mt-0"><AdSidebar /></div>}
+      </div>
     </div>
   )
 }

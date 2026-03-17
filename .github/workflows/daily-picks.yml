@@ -1,0 +1,24 @@
+name: Daily Picks Generator
+on:
+  schedule:
+    - cron: '0 7 * * *'  # 09:00 Belgrade time (UTC+2)
+  workflow_dispatch: # manual trigger
+
+jobs:
+  generate-picks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        working-directory: ./server
+        run: npm install
+      - name: Generate picks
+        working-directory: ./server
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: node test-pipeline.mjs

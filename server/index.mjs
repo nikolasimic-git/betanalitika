@@ -444,20 +444,52 @@ app.get('/api/value-bets', authMiddleware, loadUser, async (req, res) => {
 })
 
 // ══════════════════════════════════════════
+// ODDS COMPARISON & STATS ROUTES
+// ══════════════════════════════════════════
+
+app.get('/api/odds-comparison/:matchId', async (req, res) => {
+  try {
+    const { getOddsForMatch } = await import('./engine/odds-comparator.mjs')
+    const data = await getOddsForMatch(req.params.matchId)
+    if (!data) return res.status(404).json({ error: 'No odds found for this match' })
+    res.json(data)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/stats/detailed', async (req, res) => {
+  try {
+    const { calculateDetailedStats } = await import('./engine/stats-calculator.mjs')
+    const stats = await calculateDetailedStats()
+    if (!stats) return res.status(500).json({ error: 'Could not calculate stats' })
+    res.json(stats)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ══════════════════════════════════════════
 // START
 // ══════════════════════════════════════════
 
 const PORT = process.env.PORT || 3001
-app.listen(PORT, '0.0.0.0', async () => {
+process.on('uncaughtException', (err) => { console.error('UNCAUGHT:', err) })
+process.on('unhandledRejection', (err) => { console.error('UNHANDLED:', err) })
+
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 BetAnalitika API running on http://0.0.0.0:${PORT}`)
   console.log('📦 Using Supabase backend')
 
-  // Test Supabase connection
-  const { error } = await supabase.from('profiles').select('id').limit(1)
-  if (error) {
-    console.log(`⚠️ Supabase connection issue: ${error.message}`)
-    console.log('   Tables may need to be created. Run: server/migration.sql in Supabase Dashboard')
-  } else {
-    console.log('✅ Supabase connected successfully')
-  }
+  // Test Supabase connection (non-blocking)
+  supabase.from('profiles').select('id').limit(1).then(({ error }) => {
+    if (error) {
+      console.log(`⚠️ Supabase connection issue: ${error.message}`)
+      console.log('   Tables may need to be created. Run: server/migration.sql in Supabase Dashboard')
+    } else {
+      console.log('✅ Supabase connected successfully')
+    }
+  }).catch(err => {
+    console.log(`⚠️ Supabase test failed: ${err.message}`)
+  })
 })
