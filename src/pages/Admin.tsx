@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useAuth } from '../auth'
 import {
   adminDashboard, adminGetPicks, adminSetResult, adminDeletePick,
@@ -8,9 +8,76 @@ import {
 import {
   Shield, Check, X, Trash2, Loader2, RefreshCw, Plus, Users,
   BarChart3, ClipboardList, Search, Crown, DollarSign, TrendingUp,
-  Calendar, Edit2,
+  Calendar, Edit2, AlertTriangle, ChevronUp, ChevronDown,
 } from 'lucide-react'
 import { Pick } from '../types'
+
+/* ═══════════════════════════════════════════
+   CONFIRMATION MODAL
+   ═══════════════════════════════════════════ */
+
+function ConfirmModal({ title, message, onConfirm, onCancel, danger = false }: {
+  title: string; message: string; onConfirm: () => void; onCancel: () => void; danger?: boolean
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className={`rounded-lg p-2 ${danger ? 'bg-danger/10' : 'bg-accent/10'}`}>
+            <AlertTriangle className={`h-5 w-5 ${danger ? 'text-danger' : 'text-accent'}`} />
+          </div>
+          <h3 className="text-lg font-bold">{title}</h3>
+        </div>
+        <p className="text-sm text-muted mb-5">{message}</p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onCancel}
+            className="rounded-lg border border-border px-4 py-2 text-sm text-muted hover:text-white">
+            Otkaži
+          </button>
+          <button onClick={onConfirm}
+            className={`rounded-lg px-5 py-2 text-sm font-semibold ${
+              danger
+                ? 'bg-danger text-white hover:bg-danger/80'
+                : 'bg-accent text-darker hover:bg-accent-dim'
+            }`}>
+            Potvrdi
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════
+   FEEDBACK BANNER
+   ═══════════════════════════════════════════ */
+
+function FeedbackBanner({ message, type, onDismiss }: {
+  message: string; type: 'success' | 'error'; onDismiss: () => void
+}) {
+  useEffect(() => {
+    const t = setTimeout(onDismiss, 3500)
+    return () => clearTimeout(t)
+  }, [onDismiss])
+
+  return (
+    <div className={`mb-4 flex items-center justify-between rounded-lg px-4 py-2.5 text-sm font-medium ${
+      type === 'success' ? 'bg-accent/10 text-accent border border-accent/20' : 'bg-danger/10 text-danger border border-danger/20'
+    }`}>
+      <span>{type === 'success' ? '✅' : '❌'} {message}</span>
+      <button onClick={onDismiss} className="ml-3 text-xs opacity-60 hover:opacity-100">✕</button>
+    </div>
+  )
+}
+
+function useFeedback() {
+  const [fb, setFb] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
+  const show = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    setFb({ message, type })
+  }, [])
+  const clear = useCallback(() => setFb(null), [])
+  return { fb, show, clear }
+}
 
 /* ═══════════════════════════════════════════
    ADD / EDIT PICK MODAL
@@ -54,9 +121,17 @@ function PickModal({ initial, onSave, onClose }: {
     setForm({ ...form, sport, leagueFlag: sportEmojis[sport] || '⚽', league: sportLeagues[sport]?.[0] || '' })
   }
 
+  // When isSigurica is toggled on, force isFree=false (Super Pik is always premium)
+  function handleSiguricaChange(checked: boolean) {
+    setForm({ ...form, isSigurica: checked, ...(checked ? { isFree: false } : {}) })
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    onSave(form)
+    // Enforce: if isSigurica, isFree must be false
+    const pick = { ...form }
+    if (pick.isSigurica) pick.isFree = false
+    onSave(pick)
   }
 
   return (
@@ -137,12 +212,15 @@ function PickModal({ initial, onSave, onClose }: {
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <input type="checkbox" checked={form.isFree} onChange={e => setForm({...form, isFree: e.target.checked})}
+            <input type="checkbox" checked={form.isFree} disabled={form.isSigurica}
+              onChange={e => setForm({...form, isFree: e.target.checked})}
               className="rounded border-border" />
-            <label className="text-sm text-muted">Besplatan pik</label>
+            <label className={`text-sm ${form.isSigurica ? 'text-muted/50' : 'text-muted'}`}>
+              Besplatan pik {form.isSigurica && <span className="text-xs">(Super Pik = premium)</span>}
+            </label>
           </div>
           <div className="col-span-2 flex items-center gap-2">
-            <input type="checkbox" checked={form.isSigurica} onChange={e => setForm({...form, isSigurica: e.target.checked})}
+            <input type="checkbox" checked={form.isSigurica} onChange={e => handleSiguricaChange(e.target.checked)}
               className="rounded border-border" />
             <label className="text-sm text-gold font-semibold">🎯 Super Pik (Sigurica)</label>
           </div>
@@ -207,18 +285,24 @@ function DashboardTab({ dash }: { dash: any }) {
    TAB: USERS
    ═══════════════════════════════════════════ */
 interface UserRow { id: string; email: string; name: string; role: string; tier: string; created_at: string }
+type UserSortKey = 'created_at' | 'tier' | 'email'
+type SortDir = 'asc' | 'desc'
 
 function UsersTab({ token }: { token: string }) {
   const [users, setUsers] = useState<UserRow[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
+  const [sortKey, setSortKey] = useState<UserSortKey>('created_at')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; action: () => void; danger?: boolean } | null>(null)
+  const { fb, show, clear } = useFeedback()
 
   async function load() {
     setLoading(true)
     try {
       const { users: u } = await adminGetUsers(token)
       setUsers(u || [])
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); show('Greška pri učitavanju korisnika', 'error') }
     finally { setLoading(false) }
   }
 
@@ -226,22 +310,78 @@ function UsersTab({ token }: { token: string }) {
 
   async function toggleTier(user: UserRow) {
     const newTier = user.tier === 'premium' ? 'free' : 'premium'
-    await adminUpdateUser(token, user.id, { tier: newTier })
-    load()
+    const label = newTier === 'premium' ? 'Dodeli Premium' : 'Ukloni Premium'
+    setConfirmAction({
+      title: label,
+      message: `${label} za ${user.email}?`,
+      action: async () => {
+        try {
+          await adminUpdateUser(token, user.id, { tier: newTier })
+          show(`${user.email} → ${newTier}`, 'success')
+          load()
+        } catch { show('Greška pri ažuriranju tiera', 'error') }
+      },
+    })
   }
 
   async function deleteUser(user: UserRow) {
-    if (!confirm(`Obriši korisnika ${user.email}?`)) return
-    await adminDeleteUser(token, user.id)
-    load()
+    setConfirmAction({
+      title: 'Obriši korisnika',
+      message: `Da li si siguran da želiš da obrišeš ${user.email}? Ova akcija je nepovratna.`,
+      danger: true,
+      action: async () => {
+        try {
+          await adminDeleteUser(token, user.id)
+          show(`${user.email} obrisan`, 'success')
+          load()
+        } catch { show('Greška pri brisanju korisnika', 'error') }
+      },
+    })
   }
 
-  const filtered = users.filter(u => u.email?.toLowerCase().includes(search.toLowerCase()))
+  function handleSort(key: UserSortKey) {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortKey(key)
+      setSortDir('asc')
+    }
+  }
+
+  const SortIcon = ({ col }: { col: UserSortKey }) => {
+    if (sortKey !== col) return <ChevronUp className="h-3 w-3 opacity-30" />
+    return sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />
+  }
+
+  const filtered = users
+    .filter(u => u.email?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      const dir = sortDir === 'asc' ? 1 : -1
+      if (sortKey === 'created_at') {
+        return dir * ((a.created_at || '').localeCompare(b.created_at || ''))
+      }
+      if (sortKey === 'tier') {
+        return dir * ((a.tier || '').localeCompare(b.tier || ''))
+      }
+      return dir * ((a.email || '').localeCompare(b.email || ''))
+    })
+
   const premiumCount = users.filter(u => u.tier === 'premium').length
   const freeCount = users.length - premiumCount
 
   return (
     <div>
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          danger={confirmAction.danger}
+          onConfirm={() => { confirmAction.action(); setConfirmAction(null) }}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      {fb && <FeedbackBanner message={fb.message} type={fb.type} onDismiss={clear} />}
+
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted" />
@@ -266,11 +406,17 @@ function UsersTab({ token }: { token: string }) {
           <table className="w-full text-sm min-w-[600px]">
             <thead>
               <tr className="border-b border-border text-left text-muted">
-                <th className="px-3 py-2">Email</th>
+                <th className="px-3 py-2 cursor-pointer select-none" onClick={() => handleSort('email')}>
+                  <span className="flex items-center gap-1">Email <SortIcon col="email" /></span>
+                </th>
                 <th className="px-3 py-2">Ime</th>
                 <th className="px-3 py-2">Uloga</th>
-                <th className="px-3 py-2">Tier</th>
-                <th className="px-3 py-2">Registrovan</th>
+                <th className="px-3 py-2 cursor-pointer select-none" onClick={() => handleSort('tier')}>
+                  <span className="flex items-center gap-1">Tier <SortIcon col="tier" /></span>
+                </th>
+                <th className="px-3 py-2 cursor-pointer select-none" onClick={() => handleSort('created_at')}>
+                  <span className="flex items-center gap-1">Registrovan <SortIcon col="created_at" /></span>
+                </th>
                 <th className="px-3 py-2">Akcije</th>
               </tr>
             </thead>
@@ -331,6 +477,8 @@ function PicksTab({ token }: { token: string }) {
   const [showModal, setShowModal] = useState(false)
   const [editPick, setEditPick] = useState<any>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; action: () => void; danger?: boolean } | null>(null)
+  const { fb, show, clear } = useFeedback()
 
   async function loadPicks() {
     setLoading(true)
@@ -338,49 +486,64 @@ function PicksTab({ token }: { token: string }) {
       const { picks: p } = await adminGetPicks(token, dateFilter)
       setPicks(p || [])
       setSelected(new Set())
-    } catch (e) { console.error(e) }
+    } catch (e) { console.error(e); show('Greška pri učitavanju pikova', 'error') }
     finally { setLoading(false) }
   }
 
   useEffect(() => { loadPicks() }, [dateFilter])
 
   async function setResult(id: string, result: string) {
-    await adminSetResult(token, id, result)
-    loadPicks()
+    try {
+      await adminSetResult(token, id, result)
+      show(`Rezultat postavljen: ${result}`, 'success')
+      loadPicks()
+    } catch { show('Greška pri postavljanju rezultata', 'error') }
   }
 
   async function deletePick(id: string) {
-    if (!confirm('Obriši ovaj pik?')) return
-    await adminDeletePick(token, id)
-    loadPicks()
+    setConfirmAction({
+      title: 'Obriši pik',
+      message: 'Da li si siguran da želiš da obrišeš ovaj pik? Ova akcija je nepovratna.',
+      danger: true,
+      action: async () => {
+        try {
+          await adminDeletePick(token, id)
+          show('Pik obrisan', 'success')
+          loadPicks()
+        } catch { show('Greška pri brisanju pika', 'error') }
+      },
+    })
   }
 
   async function handleSavePick(pick: any) {
-    if (editPick?.id) {
-      // Edit existing - map camelCase to snake_case for DB
-      await adminUpdatePick(token, editPick.id, {
-        sport: pick.sport,
-        league: pick.league,
-        league_flag: pick.leagueFlag,
-        home_team: pick.homeTeam,
-        away_team: pick.awayTeam,
-        kick_off: pick.kickOff,
-        match_date: pick.matchDate,
-        prediction_type: pick.predictionType,
-        prediction_value: pick.predictionValue,
-        confidence: pick.confidence,
-        reasoning: pick.reasoning,
-        odds: pick.odds,
-        bookmaker: pick.bookmaker,
-        is_free: pick.isFree,
-        is_sigurica: pick.isSigurica,
-      })
-    } else {
-      await adminAddPick(token, pick)
-    }
-    setShowModal(false)
-    setEditPick(null)
-    loadPicks()
+    try {
+      if (editPick?.id) {
+        await adminUpdatePick(token, editPick.id, {
+          sport: pick.sport,
+          league: pick.league,
+          league_flag: pick.leagueFlag,
+          home_team: pick.homeTeam,
+          away_team: pick.awayTeam,
+          kick_off: pick.kickOff,
+          match_date: pick.matchDate,
+          prediction_type: pick.predictionType,
+          prediction_value: pick.predictionValue,
+          confidence: pick.confidence,
+          reasoning: pick.reasoning,
+          odds: pick.odds,
+          bookmaker: pick.bookmaker,
+          is_free: pick.isFree,
+          is_sigurica: pick.isSigurica,
+        })
+        show('Pik ažuriran', 'success')
+      } else {
+        await adminAddPick(token, pick)
+        show('Pik dodat', 'success')
+      }
+      setShowModal(false)
+      setEditPick(null)
+      loadPicks()
+    } catch { show('Greška pri čuvanju pika', 'error') }
   }
 
   function openEdit(pick: Pick) {
@@ -421,13 +584,27 @@ function PicksTab({ token }: { token: string }) {
 
   async function bulkSetResult(result: string) {
     if (selected.size === 0) return
-    const ids = Array.from(selected)
-    await adminBulkResult(token, ids, result)
-    loadPicks()
+    try {
+      const ids = Array.from(selected)
+      await adminBulkResult(token, ids, result)
+      show(`${ids.length} pikova → ${result}`, 'success')
+      loadPicks()
+    } catch { show('Greška pri bulk ažuriranju', 'error') }
   }
 
   return (
     <div>
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          danger={confirmAction.danger}
+          onConfirm={() => { confirmAction.action(); setConfirmAction(null) }}
+          onCancel={() => setConfirmAction(null)}
+        />
+      )}
+      {fb && <FeedbackBanner message={fb.message} type={fb.type} onDismiss={clear} />}
+
       {(showModal) && (
         <PickModal
           initial={editPick}

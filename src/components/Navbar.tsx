@@ -2,12 +2,14 @@ import { Link, useLocation } from 'react-router-dom'
 import { TrendingUp, Menu, X, LogIn, LogOut, Crown, Shield } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useAuth } from '../auth'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export default function Navbar() {
   const location = useLocation()
   const [open, setOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const { user, logout, isPremium, isAdmin } = useAuth()
+  const { lang, setLang, t } = useLanguage()
 
   useEffect(() => {
     function onScroll() {
@@ -18,21 +20,23 @@ export default function Navbar() {
   }, [])
 
   const links = [
-    { to: '/', label: 'Početna' },
-    { to: '/picks', label: '🎯 Pikovi' },
-    { to: '/history', label: '📊 Rezultati' },
-    { to: '/pricing', label: '💎 Premium' },
-    ...(isAdmin ? [{ to: '/admin', label: '🛡️ Admin' }] : []),
+    { to: '/', label: t('nav.home') },
+    { to: '/picks', label: t('nav.picks') },
+    { to: '/history', label: t('nav.results') },
+    { to: '/pricing', label: t('nav.premium') },
+    ...(isAdmin ? [{ to: '/admin', label: t('nav.admin') }] : []),
   ]
 
   const desktopLinks = [
     ...links.slice(0, 4),
-    { to: '/how-to-use', label: '📖 Vodič' },
-    { to: '/contact', label: '✉️ Kontakt' },
+    { to: '/how-to-use', label: t('nav.guide') },
+    { to: '/contact', label: t('nav.contact') },
     ...links.slice(4),
   ]
 
   const isActive = (path: string) => location.pathname === path
+
+  const toggleLang = () => setLang(lang === 'sr' ? 'en' : 'sr')
 
   return (
     <nav className={`sticky top-0 z-50 border-b border-border bg-darker/80 backdrop-blur-xl transition-shadow duration-300 ${scrolled ? 'shadow-lg shadow-black/20' : ''}`}>
@@ -48,7 +52,7 @@ export default function Navbar() {
             <Link
               key={l.to}
               to={l.to}
-              className={`relative rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              className={`relative rounded-lg px-3 py-2 text-sm font-medium transition-colors lg:px-4 ${
                 isActive(l.to)
                   ? 'bg-accent/10 text-accent'
                   : 'text-muted hover:text-white hover:bg-card'
@@ -60,9 +64,18 @@ export default function Navbar() {
               )}
             </Link>
           ))}
-          
+
+          {/* Language toggle */}
+          <button
+            onClick={toggleLang}
+            className="ml-2 rounded-lg border border-border px-2.5 py-1.5 text-sm transition-colors hover:bg-card"
+            title={lang === 'sr' ? 'Switch to English' : 'Prebaci na srpski'}
+          >
+            {lang === 'sr' ? '🇬🇧' : '🇷🇸'}
+          </button>
+
           {user ? (
-            <div className="ml-3 flex items-center gap-2">
+            <div className="ml-2 flex items-center gap-2">
               <Link to="/profile" className="flex items-center gap-1 text-sm text-muted hover:text-white transition-colors">
                 {isPremium && <Crown className="h-3.5 w-3.5 text-gold" />}
                 {isAdmin && <Shield className="h-3.5 w-3.5 text-accent" />}
@@ -71,7 +84,7 @@ export default function Navbar() {
               <button
                 onClick={logout}
                 className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted hover:text-white"
-                title="Odjavi se"
+                title={t('nav.logout')}
               >
                 <LogOut className="h-3.5 w-3.5" />
               </button>
@@ -79,27 +92,35 @@ export default function Navbar() {
           ) : (
             <Link
               to="/login"
-              className="ml-3 flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-darker transition-transform duration-200 hover:scale-105 hover:bg-accent-dim"
+              className="ml-2 flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-sm font-semibold text-darker transition-transform duration-200 hover:scale-105 hover:bg-accent-dim"
             >
-              <LogIn className="h-4 w-4" /> Prijava
+              <LogIn className="h-4 w-4" /> {t('nav.login')}
             </Link>
           )}
         </div>
 
-        {/* Mobile toggle */}
-        <button onClick={() => setOpen(!open)} className="md:hidden text-muted" title="Meni">
-          {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-        </button>
+        {/* Mobile toggle + lang */}
+        <div className="flex items-center gap-2 md:hidden">
+          <button
+            onClick={toggleLang}
+            className="rounded-lg border border-border px-2.5 py-1.5 text-sm"
+          >
+            {lang === 'sr' ? '🇬🇧' : '🇷🇸'}
+          </button>
+          <button onClick={() => setOpen(!open)} className="text-muted" title={t('nav.menu')}>
+            {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </button>
+        </div>
       </div>
 
       {/* Mobile menu */}
       <div
         className={`overflow-hidden border-t border-border bg-darker md:hidden transition-all duration-300 ${
-          open ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0 border-t-0'
+          open ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0 border-t-0'
         }`}
       >
         <div className="px-4 pb-4">
-          {links.map((l) => (
+          {[...links, { to: '/how-to-use', label: t('nav.guide') }, { to: '/contact', label: t('nav.contact') }].map((l) => (
             <Link
               key={l.to}
               to={l.to}
@@ -118,7 +139,7 @@ export default function Navbar() {
                 {user.name}
               </Link>
               <button onClick={() => { logout(); setOpen(false) }} className="text-sm text-muted hover:text-white">
-                Odjavi se
+                {t('nav.logout')}
               </button>
             </div>
           ) : (
@@ -127,7 +148,7 @@ export default function Navbar() {
               onClick={() => setOpen(false)}
               className="mt-2 block rounded-lg bg-accent px-5 py-3 text-center text-sm font-semibold text-darker"
             >
-              Prijava
+              {t('nav.login')}
             </Link>
           )}
         </div>
