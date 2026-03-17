@@ -13,7 +13,7 @@ export interface Pick {
   odds: number
   bookmaker: string
   affiliateUrl: string
-  result: 'pending' | 'won' | 'lost'
+  result: 'pending' | 'won' | 'lost' | 'void'
   isFree: boolean
   locked?: boolean
   isSigurica?: boolean

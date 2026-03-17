@@ -229,3 +229,29 @@ export async function adminAddPick(token: string, pick: any) {
   })
   return res.json()
 }
+
+export async function adminGetUsers(token: string) {
+  const res = await fetch(`${API_BASE}/api/admin/users`, { headers: headers(token) })
+  return res.json()
+}
+
+export async function adminUpdateUser(token: string, id: string, data: { tier?: string; role?: string }) {
+  const res = await fetch(`${API_BASE}/api/admin/users/${id}`, {
+    method: 'PATCH', headers: headers(token), body: JSON.stringify(data),
+  })
+  return res.json()
+}
+
+export async function adminDeleteUser(token: string, id: string) {
+  const res = await fetch(`${API_BASE}/api/admin/users/${id}`, {
+    method: 'DELETE', headers: headers(token),
+  })
+  return res.json()
+}
+
+export async function adminBulkResult(token: string, ids: string[], result: string) {
+  const res = await fetch(`${API_BASE}/api/admin/picks/bulk-result`, {
+    method: 'POST', headers: headers(token), body: JSON.stringify({ ids, result }),
+  })
+  return res.json()
+}

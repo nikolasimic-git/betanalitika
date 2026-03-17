@@ -10,16 +10,18 @@ interface Props {
 export default function PickCard({ pick, locked = false, index = 0 }: Props) {
   const staggerClass = index < 10 ? `stagger-${index + 1}` : ''
 
-  const resultIcon = {
+  const resultIcon: Record<string, React.ReactNode> = {
     pending: <Clock className="h-4 w-4 text-muted" />,
     won: <Check className="h-4 w-4 text-accent" />,
     lost: <X className="h-4 w-4 text-danger" />,
+    void: <Clock className="h-4 w-4 text-gray-400" />,
   }
 
-  const resultBorder = {
+  const resultBorder: Record<string, string> = {
     pending: 'border-border',
     won: 'border-accent/30',
     lost: 'border-danger/30',
+    void: 'border-gray-500/30',
   }
 
   if (locked) {

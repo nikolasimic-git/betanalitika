@@ -308,12 +308,20 @@ app.delete('/api/admin/picks/:id', authMiddleware, loadUser, adminMiddleware, as
 })
 
 app.post('/api/admin/picks', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { isSigurica, isFree, matchDate, homeTeam, awayTeam, kickOff, predictionType, predictionValue, leagueFlag, ...rest } = req.body
   const pick = {
     id: `pick-manual-${Date.now()}`,
-    match_date: todayStr(),
+    match_date: matchDate || todayStr(),
+    home_team: homeTeam,
+    away_team: awayTeam,
+    kick_off: kickOff,
+    prediction_type: predictionType,
+    prediction_value: predictionValue,
+    league_flag: leagueFlag,
     result: 'pending',
-    is_free: false,
-    ...req.body,
+    is_free: isFree ?? false,
+    is_sigurica: isSigurica ?? false,
+    ...rest,
   }
 
   const { data, error } = await supabase.from('picks').insert(pick).select().single()
@@ -352,6 +360,59 @@ app.put('/api/admin/users/:id/tier', authMiddleware, loadUser, adminMiddleware, 
   res.json({ ok: true })
 })
 
+app.patch('/api/admin/users/:id', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const updates = {}
+  if (req.body.tier) updates.tier = req.body.tier
+  if (req.body.role) updates.role = req.body.role
+  if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Nothing to update' })
+
+  const { error } = await supabase
+    .from('profiles')
+    .update(updates)
+    .eq('id', req.params.id)
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true })
+})
+
+app.delete('/api/admin/users/:id', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { error } = await supabase
+    .from('profiles')
+    .delete()
+    .eq('id', req.params.id)
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true })
+})
+
+app.post('/api/admin/setup', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  // Manual setup endpoint for is_sigurica column
+  const { error } = await supabase.rpc('exec_sql', {
+    sql: 'ALTER TABLE picks ADD COLUMN IF NOT EXISTS is_sigurica boolean DEFAULT false'
+  })
+  if (error) {
+    return res.json({
+      ok: false,
+      message: 'RPC exec_sql not available. Run this SQL manually in Supabase SQL Editor: ALTER TABLE picks ADD COLUMN IF NOT EXISTS is_sigurica boolean DEFAULT false;',
+      error: error.message
+    })
+  }
+  res.json({ ok: true, message: 'is_sigurica column added' })
+})
+
+app.post('/api/admin/picks/bulk-result', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { ids, result } = req.body
+  if (!ids?.length || !result) return res.status(400).json({ error: 'ids and result required' })
+
+  const { error } = await supabase
+    .from('picks')
+    .update({ result })
+    .in('id', ids)
+
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true, updated: ids.length })
+})
+
 app.get('/api/admin/dashboard', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
   const today = todayStr()
 
@@ -369,12 +430,29 @@ app.get('/api/admin/dashboard', authMiddleware, loadUser, adminMiddleware, async
     supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('tier', 'premium'),
   ])
 
+  // Win rate last 30 days
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+  const { data: recentPicks } = await supabase
+    .from('picks')
+    .select('result')
+    .gte('match_date', thirtyDaysAgo)
+    .neq('result', 'pending')
+
+  const resolved = recentPicks || []
+  const won = resolved.filter(p => p.result === 'won').length
+  const winRate = resolved.length > 0 ? +(won / resolved.length * 100).toFixed(1) : 0
+  const freeUsers = (totalUsers || 0) - (premiumUsers || 0)
+  const revenueEstimate = (premiumUsers || 0) * 20
+
   res.json({
     totalPicks: totalPicks || 0,
     todayPicks: todayPicksCount || 0,
     pendingPicks: pendingPicks || 0,
     totalUsers: totalUsers || 0,
     premiumUsers: premiumUsers || 0,
+    freeUsers,
+    winRate,
+    revenueEstimate,
   })
 })
 
@@ -492,4 +570,14 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   }).catch(err => {
     console.log(`⚠️ Supabase test failed: ${err.message}`)
   })
+
+  // Try to add is_sigurica column (ignore if already exists)
+  supabase.rpc('exec_sql', { sql: 'ALTER TABLE picks ADD COLUMN IF NOT EXISTS is_sigurica boolean DEFAULT false' })
+    .then(({ error }) => {
+      if (error) {
+        console.log(`⚠️ is_sigurica column: RPC not available (${error.message}). Add manually: ALTER TABLE picks ADD COLUMN IF NOT EXISTS is_sigurica boolean DEFAULT false;`)
+      } else {
+        console.log('✅ is_sigurica column ensured')
+      }
+    })
 })
