@@ -92,7 +92,7 @@ export default function PickCard({ pick, locked = false, index = 0 }: Props) {
         {/* Footer */}
         <div className="mt-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold text-white">{pick.odds.toFixed(2)}</span>
+            {pick.odds > 0 && <span className="text-2xl font-bold text-white">{pick.odds.toFixed(2)}</span>}
             <span className="text-xs text-muted">@ {pick.bookmaker}</span>
           </div>
           <a
@@ -150,7 +150,7 @@ export default function PickCard({ pick, locked = false, index = 0 }: Props) {
       {/* Footer */}
       <div className="mt-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-2xl font-bold text-white">{pick.odds.toFixed(2)}</span>
+          {pick.odds > 0 && <span className="text-2xl font-bold text-white">{pick.odds.toFixed(2)}</span>}
           <span className="text-xs text-muted">@ {pick.bookmaker}</span>
         </div>
         <a

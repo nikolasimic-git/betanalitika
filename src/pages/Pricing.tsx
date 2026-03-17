@@ -1,12 +1,29 @@
 import { Check, X, Crown, Zap, Bitcoin, Mail, ArrowRight, HelpCircle, Wallet, Clock, Shield } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../auth'
 
 export default function Pricing() {
+  const { isPremium, user } = useAuth()
+
   return (
     <div className="animate-fade-in mx-auto max-w-5xl px-4 py-12">
       <div className="text-center mb-12">
         <h1 className="text-3xl font-bold sm:text-4xl">Izaberi svoj plan</h1>
         <p className="mt-2 text-muted">Počni besplatno, upgrade-uj kad budeš spreman</p>
+      </div>
+
+      {/* Premium user banner */}
+      {isPremium && (
+        <div className="mb-10 max-w-3xl mx-auto rounded-2xl border-2 border-accent/40 bg-accent/5 p-8 text-center">
+          <Crown className="mx-auto h-10 w-10 text-gold mb-3" />
+          <p className="text-xl font-bold text-accent">✅ Ti si Premium korisnik!</p>
+          <p className="mt-2 text-muted">Uživaj u svim pikovima, uključujući Super Pik i svih 11 dnevnih pikova.</p>
+        </div>
+      )}
+
+      {/* Picks summary */}
+      <div className="mb-10 max-w-3xl mx-auto rounded-xl border border-border bg-card p-4 text-center text-sm text-muted">
+        Ukupno <span className="text-white font-semibold">11 pikova dnevno</span>: 3 besplatna + 1 Super Pik + 7 premium
       </div>
 
       <div className="grid gap-6 sm:grid-cols-2 max-w-3xl mx-auto">
@@ -21,7 +38,7 @@ export default function Pricing() {
 
           <ul className="mt-6 space-y-3">
             {[
-              { ok: true, text: '2 AI pika dnevno' },
+              { ok: true, text: '3 AI pika dnevno' },
               { ok: true, text: 'Confidence score' },
               { ok: true, text: 'AI obrazloženje' },
               { ok: true, text: 'Track record (poslednja 3 dana)' },
@@ -79,12 +96,18 @@ export default function Pricing() {
             ))}
           </ul>
 
-          <a
-            href="#kako-platiti"
-            className="mt-8 block w-full rounded-xl bg-gold py-3 text-center text-sm font-bold text-darker transition-colors hover:bg-gold/90"
-          >
-            Započni Premium — $20/mes
-          </a>
+          {isPremium ? (
+            <div className="mt-8 block w-full rounded-xl bg-accent/10 border border-accent/30 py-3 text-center text-sm font-bold text-accent">
+              ✅ Aktivan Premium
+            </div>
+          ) : (
+            <a
+              href="#kako-platiti"
+              className="mt-8 block w-full rounded-xl bg-gold py-3 text-center text-sm font-bold text-darker transition-colors hover:bg-gold/90"
+            >
+              Započni Premium — $20/mes
+            </a>
+          )}
           <p className="mt-2 text-center text-xs text-muted">Otkaži kad hoćeš. Bez ugovora.</p>
         </div>
       </div>
@@ -190,7 +213,7 @@ export default function Pricing() {
           },
           {
             q: 'Koliko pikova dobijem dnevno?',
-            a: 'Besplatni korisnici dobijaju 2 pika dnevno. Premium korisnici dobijaju sve pikove (obično 10+ dnevno) plus Sigurica pik.',
+            a: 'Besplatni korisnici dobijaju 3 pika dnevno. Premium korisnici dobijaju svih 11 pikova: 3 besplatna + 1 Super Pik + 7 premium.',
           },
           {
             q: 'Koja kriptovaluta je najlakša za slanje?',

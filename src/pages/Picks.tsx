@@ -44,8 +44,9 @@ export default function Picks() {
     }
   }
 
-  const freePicks = picks.filter((p) => p.isFree)
-  const premiumPicks = picks.filter((p) => !p.isFree)
+  const freePicks = picks.filter((p) => p.isFree && !p.isSigurica)
+  const siguricaPick = picks.filter((p) => p.isSigurica)
+  const premiumPicks = picks.filter((p) => !p.isFree && !p.isSigurica)
 
   if (loading) {
     return (
@@ -122,25 +123,55 @@ export default function Picks() {
             </div>
           )}
 
-          {/* Premium picks */}
-          {premiumPicks.length > 0 && (
+          {/* Premium pikovi (Super Pik + ostali premium) */}
+          {(siguricaPick.length > 0 || premiumPicks.length > 0) && (
             <div className="mt-10">
               <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
                 💎 Premium pikovi
                 <span className="rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-medium text-gold">
-                  {premiumPicks.length}
+                  {siguricaPick.length + premiumPicks.length}
                 </span>
               </h2>
-              <div className="grid gap-4">
-                {premiumPicks.map((pick, i) => (
-                  <div key={pick.id}>
-                    <PickCard pick={pick} locked={pick.locked} index={i} />
-                    {!isPremium && (i + 1) % 2 === 0 && i < premiumPicks.length - 1 && (
-                      <div className="mt-4"><AdBanner /></div>
-                    )}
+
+              {/* Super Pik na vrhu premium sekcije */}
+              {siguricaPick.length > 0 && (
+                <div className="mb-6">
+                  <h3 className="mb-3 flex items-center gap-2 text-base font-semibold">
+                    🎯 Super Pik — Naš najsigurniji izbor
+                    <span className="rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-medium text-gold">
+                      90%+ prolaznost
+                    </span>
+                  </h3>
+                  <div className="grid gap-4">
+                    {siguricaPick.map((pick, i) => (
+                      <PickCard key={pick.id} pick={pick} locked={pick.locked} index={i} />
+                    ))}
                   </div>
-                ))}
-              </div>
+                  {!isPremium && siguricaPick[0]?.locked && (
+                    <div className="mt-4 rounded-xl border-2 border-gold/30 bg-gold/5 p-6 text-center">
+                      <p className="text-gold font-semibold">🔒 Otključaj Super Pik sa Premium planom</p>
+                      <p className="text-sm text-muted mt-1">Naš najsigurniji dnevni pik sa 90%+ prolaznosti</p>
+                      <a href="/pricing" className="mt-3 inline-block rounded-lg bg-gold px-6 py-2 text-sm font-bold text-darker hover:bg-gold/90">
+                        Upgrade na Premium →
+                      </a>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Ostali premium pikovi */}
+              {premiumPicks.length > 0 && (
+                <div className="grid gap-4">
+                  {premiumPicks.map((pick, i) => (
+                    <div key={pick.id}>
+                      <PickCard pick={pick} locked={pick.locked} index={i} />
+                      {!isPremium && (i + 1) % 2 === 0 && i < premiumPicks.length - 1 && (
+                        <div className="mt-4"><AdBanner /></div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

@@ -14,7 +14,7 @@ function mapPick(p: any): Pick {
     predictionValue: p.prediction_value ?? p.predictionValue,
     confidence: p.confidence,
     reasoning: p.reasoning,
-    odds: p.odds,
+    odds: typeof p.odds === 'string' ? parseFloat(p.odds) || 0 : (p.odds ?? 0),
     bookmaker: p.bookmaker,
     affiliateUrl: p.affiliate_url ?? p.affiliateUrl,
     result: p.result,
@@ -86,39 +86,38 @@ export async function fetchTodayPicks(token?: string | null, sport = 'all') {
   }
 
   if (isPremium) {
-    // Premium: all picks, mark highest confidence as sigurica
+    // Premium: all picks visible, mark highest confidence as sigurica
     const sorted = [...picks].sort((a: any, b: any) => (b.confidence ?? 0) - (a.confidence ?? 0))
     const result = sorted.map((p: any, i: number) => ({
       ...p,
       locked: false,
       isSigurica: i === 0,
+      is_free: p.is_free,
     }))
     return { picks: result.map(mapPick), date: today }
   }
 
-  // Free: 2 random free picks, rest locked
+  // Free: 3 free picks (1x5★, 1x4★, 1x3★), rest locked
   const freePicks = picks.filter((p: any) => p.is_free)
   const premiumOnlyPicks = picks.filter((p: any) => !p.is_free)
 
-  // Shuffle and pick 2
-  const shuffled = [...freePicks].sort(() => Math.random() - 0.5)
-  const selected = shuffled.slice(0, 2)
+  // Sort by confidence descending and pick top 3
+  const sortedFree = [...freePicks].sort((a: any, b: any) => (b.confidence ?? 0) - (a.confidence ?? 0))
+  const selected = sortedFree.slice(0, 3)
   const selectedIds = new Set(selected.map((p: any) => p.id))
 
   const result = [
-    ...selected.map((p: any) => ({ ...p, locked: false, isFree: true })),
+    ...selected.map((p: any) => ({ ...p, locked: false, isFree: true, is_free: true })),
     ...freePicks.filter((p: any) => !selectedIds.has(p.id)).map((p: any) => ({
       ...p,
       reasoning: '🔒 Premium pikovi su dostupni samo za premium korisnike.',
       prediction_value: '🔒',
-      odds: 0,
       locked: true,
     })),
     ...premiumOnlyPicks.map((p: any) => ({
       ...p,
       reasoning: '🔒 Premium pikovi su dostupni samo za premium korisnike.',
       prediction_value: '🔒',
-      odds: 0,
       locked: true,
     })),
   ]

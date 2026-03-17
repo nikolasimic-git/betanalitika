@@ -19,6 +19,7 @@ function AddPickModal({ onAdd, onClose }: { onAdd: (pick: any) => void; onClose:
     odds: 1.80,
     bookmaker: 'Mozzart',
     isFree: false,
+    isSigurica: false,
     matchDate: new Date().toISOString().split('T')[0],
   })
 
@@ -148,6 +149,13 @@ function AddPickModal({ onAdd, onClose }: { onAdd: (pick: any) => void; onClose:
             <input type="checkbox" checked={form.isFree} onChange={e => setForm({...form, isFree: e.target.checked})}
               className="rounded border-border" />
             <label className="text-sm text-muted">Besplatan pik</label>
+          </div>
+
+          {/* Sigurica */}
+          <div className="flex items-center gap-2">
+            <input type="checkbox" checked={form.isSigurica} onChange={e => setForm({...form, isSigurica: e.target.checked})}
+              className="rounded border-border" />
+            <label className="text-sm text-gold">🎯 Super Pik</label>
           </div>
         </div>
 
