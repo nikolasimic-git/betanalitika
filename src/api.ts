@@ -275,11 +275,23 @@ export async function adminGetUsers() {
 }
 
 export async function adminUpdateUser(id: string, updates: { tier?: string; role?: string }) {
+  if (isSuperAdmin(id) && (updates.role || updates.tier)) {
+    // Allow tier changes for super admin but block role changes
+    if (updates.role) throw new Error('Super Admin role ne može biti promenjen.')
+  }
   const { error } = await supabaseAdmin.from('profiles').update(updates).eq('id', id)
   if (error) throw error
 }
 
+// Super Admin — cannot be modified by anyone
+export const SUPER_ADMIN_ID = '57500925-f8c1-4936-99b1-b4758c29ea3c'
+
+export function isSuperAdmin(id: string) {
+  return id === SUPER_ADMIN_ID
+}
+
 export async function adminUpdateUserRole(id: string, role: string) {
+  if (isSuperAdmin(id)) throw new Error('Super Admin role ne može biti promenjen.')
   const { error } = await supabaseAdmin.from('profiles').update({ role }).eq('id', id)
   if (error) throw error
   return { ok: true }

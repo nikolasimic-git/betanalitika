@@ -18,6 +18,7 @@ import HowToPay from './pages/HowToPay'
 import HowToUse from './pages/HowToUse'
 import Terms from './pages/Terms'
 import Contact from './pages/Contact'
+import Tennis from './pages/Tennis'
 import NotFound from './pages/NotFound'
 
 function ScrollToTop() {
@@ -50,6 +51,7 @@ export default function App() {
                 <Route path="/how-to-use" element={<HowToUse />} />
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/contact" element={<Contact />} />
+                <Route path="/tennis" element={<Tennis />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </main>

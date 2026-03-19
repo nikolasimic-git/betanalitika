@@ -8,6 +8,7 @@ export const translations = {
   'nav.premium': { sr: '💎 Premium', en: '💎 Premium' },
   'nav.admin': { sr: '🛡️ Admin', en: '🛡️ Admin' },
   'nav.guide': { sr: '📖 Vodič', en: '📖 Guide' },
+  'nav.tennis': { sr: '🎾 Tenis', en: '🎾 Tennis' },
   'nav.contact': { sr: '✉️ Kontakt', en: '✉️ Contact' },
   'nav.login': { sr: 'Prijava', en: 'Login' },
   'nav.logout': { sr: 'Odjavi se', en: 'Log out' },
@@ -398,6 +399,14 @@ export const translations = {
     sr: 'Samo pikovi sa visokim confidence-om (4-5⭐). Kvalitet, ne kvantitet.',
     en: 'Only high-confidence picks (4-5⭐). Quality over quantity.',
   },
+
+  // Tennis
+  'tennis.title': { sr: 'Tenis Pikovi', en: 'Tennis Picks' },
+  'tennis.coming_soon': { sr: '🚀 Uskoro!', en: '🚀 Coming Soon!' },
+  'tennis.desc': { sr: 'AI analiza teniskih mečeva stiže uskoro. Pripremamo nešto specijalno!', en: 'AI tennis match analysis is coming soon. We\'re preparing something special!' },
+  'tennis.notify': { sr: 'Budi prvi koji sazna!', en: 'Be the first to know!' },
+  'tennis.notify_sub': { sr: 'Pratite nas na Telegramu za obaveštenja kada tenis pikovi budu dostupni.', en: 'Follow us on Telegram for notifications when tennis picks become available.' },
+  'tennis.back': { sr: 'Vidi današnje pikove', en: 'See today\'s picks' },
 
   // Common
   'common.email': { sr: 'Email', en: 'Email' },

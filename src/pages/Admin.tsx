@@ -5,6 +5,7 @@ import {
   adminAddPick, adminUpdatePick, adminGetUsers, adminUpdateUser,
   adminUpdateUserRole, adminDeleteUser, adminBulkResult,
   adminGetAds, adminAddAd, adminUpdateAd, adminDeleteAd,
+  SUPER_ADMIN_ID, isSuperAdmin,
 } from '../api'
 import {
   Shield, Check, X, Trash2, Loader2, RefreshCw, Plus, Users,
@@ -310,6 +311,7 @@ function UsersTab({ currentUserId }: { currentUserId?: string }) {
   useEffect(() => { load() }, [])
 
   async function toggleTier(user: UserRow) {
+    if (isSuperAdmin(user.id)) { show('Super Admin — ne može se menjati', 'error'); return }
     const newTier = user.tier === 'premium' ? 'free' : 'premium'
     const label = newTier === 'premium' ? 'Dodeli Premium' : 'Ukloni Premium'
     setConfirmAction({
@@ -326,6 +328,7 @@ function UsersTab({ currentUserId }: { currentUserId?: string }) {
   }
 
   async function toggleRole(user: UserRow) {
+    if (isSuperAdmin(user.id)) { show('Super Admin — ne može se menjati', 'error'); return }
     const newRole = user.role === 'admin' ? 'user' : 'admin'
     const isSelf = user.id === currentUserId
     if (isSelf && newRole === 'user') {
@@ -462,33 +465,39 @@ function UsersTab({ currentUserId }: { currentUserId?: string }) {
                     {user.created_at ? new Date(user.created_at).toLocaleDateString('sr-RS') : '—'}
                   </td>
                   <td className="px-3 py-2">
-                    <div className="flex gap-1">
-                      <button onClick={() => toggleRole(user)}
-                        disabled={user.id === currentUserId && user.role === 'admin'}
-                        className={`rounded px-2 py-1 text-xs font-medium ${
-                          user.id === currentUserId && user.role === 'admin'
-                            ? 'bg-gray-500/5 text-gray-600 cursor-not-allowed'
-                            : user.role === 'admin'
-                              ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
-                              : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
-                        }`}>
-                        {user.role === 'admin' ? 'Ukloni Admin' : 'Dodeli Admin'}
-                      </button>
-                      <button onClick={() => toggleTier(user)}
-                        className={`rounded px-2 py-1 text-xs font-medium ${
-                          user.tier === 'premium'
-                            ? 'bg-gray-500/10 text-gray-400 hover:bg-gray-500/20'
-                            : 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
-                        }`}>
-                        {user.tier === 'premium' ? 'Ukloni Premium' : 'Dodeli Premium'}
-                      </button>
-                      {user.role !== 'admin' && (
-                        <button onClick={() => deleteUser(user)}
-                          className="rounded bg-danger/10 p-1 text-danger hover:bg-danger/20" title="Obriši">
-                          <Trash2 className="h-3.5 w-3.5" />
+                    {isSuperAdmin(user.id) ? (
+                      <span className="rounded bg-accent/10 px-2 py-1 text-xs font-semibold text-accent" title="Super Admin — ne može se menjati">
+                        🛡️ Super Admin
+                      </span>
+                    ) : (
+                      <div className="flex gap-1">
+                        <button onClick={() => toggleRole(user)}
+                          disabled={user.id === currentUserId && user.role === 'admin'}
+                          className={`rounded px-2 py-1 text-xs font-medium ${
+                            user.id === currentUserId && user.role === 'admin'
+                              ? 'bg-gray-500/5 text-gray-600 cursor-not-allowed'
+                              : user.role === 'admin'
+                                ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                                : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
+                          }`}>
+                          {user.role === 'admin' ? 'Ukloni Admin' : 'Dodeli Admin'}
                         </button>
-                      )}
-                    </div>
+                        <button onClick={() => toggleTier(user)}
+                          className={`rounded px-2 py-1 text-xs font-medium ${
+                            user.tier === 'premium'
+                              ? 'bg-gray-500/10 text-gray-400 hover:bg-gray-500/20'
+                              : 'bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20'
+                          }`}>
+                          {user.tier === 'premium' ? 'Ukloni Premium' : 'Dodeli Premium'}
+                        </button>
+                        {user.role !== 'admin' && (
+                          <button onClick={() => deleteUser(user)}
+                            className="rounded bg-danger/10 p-1 text-danger hover:bg-danger/20" title="Obriši">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
