@@ -8,3 +8,4 @@ server/picks-db.json
 server/users.json
 *.log
 .DS_Store
+tsconfig.tsbuildinfo
