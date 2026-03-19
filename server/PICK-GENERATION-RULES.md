@@ -30,12 +30,41 @@ Za SVAKI meč, analiziraj SVE opcije pre nego što izabereš:
 Nikad ne biraj market samo zato što je "najlakši". Biraj market koji daje **NAJBOLJI VALUE** — 
 gde je razlika između realne verovatnoće i implicirane kvote NAJVEĆA.
 
+## SITUATIONAL FACTORS — OBAVEZNO PROVERITI
+
+Pre nego što napraviš pick, MORAŠ proveriti ove faktore:
+
+### NBA
+- **Back-to-back (B2B)**: Da li tim igra drugi meč u dva dana? B2B timovi imaju ~5% niži win rate u gostima. Ovo je KRITIČAN faktor.
+- **Umor od putovanja**: West coast trip (3+ gostovanja zaredom), east-to-west leti (jet lag)
+- **Playoff race**: Tim koji se bori za 6-10 mesto vs tim koji je kliničiran — motivacija je ogromna
+- **Tanking**: Timovi sa lošim bilansom pred kraj sezone namerno gube za draft pick — NE igraj ih kao favorite
+- **Rest days**: Tim sa 2+ dana odmora vs tim koji je igrao sinoć — prednost odmorenom
+
+### Fudbal
+- **Domaći/gostujući bilans**: Neki timovi su zveri kod kuće, katastrofa u gostima
+- **Derbi/rivalstvo**: Derbiji su nepredvidivi — rezultat forme je manje bitan
+- **Kup vs liga motivacija**: Tim koji se bori za titulu u ligi može rotirati u kupu
+- **Revanš (2nd leg)**: Tim koji gubi iz prvog meča MORA da napada → otvara se prostor
+- **Vremenski uslovi**: Kiša/vetar smanjuju golove (Under favorizovan), sneg = haos
+- **Teren**: Loš teren (npr. zimi) favorizuje defanzivnije timove
+
+### Tenis
+- **Podloga**: Hard court ≠ clay ≠ grass — neki igrači dominiraju na specifičnoj podlozi
+- **Umor od turnira**: Igrač koji je igrao 3-set meč juče vs odmoreni protivnik
+- **H2H na podlozi**: Ukupan H2H je manje bitan od H2H na istoj podlozi
+
+### KAKO KORISTITI
+U reasoning-u NAVEDI koji situacioni faktori su uticali na pick:
+- "Lakers igraju B2B (sinoć Houston), umor je realan faktor → Miami ima prednost"
+- "Freiburg kod kuće u revanšu, Genk mora da napada → prostor za kontre"
+- "Machac igrao 3 seta juče, umor može biti faktor → smanjujem confidence"
+
 ## PICK COUNT — FLEKSIBILNO, QUALITY FIRST
 
 ### NEMA MINIMALNOG BROJA PO SPORTU
 - Ne moraš imati 2 NBA, 2 fudbala itd.
 - Ako danas ima 5 dobrih fudbal pikova i 0 NBA — onda 5 fudbal i 0 NBA
-- Ako ima samo tenis i košarka — OK
 - Sport je nebitan. VALUE JE BITAN.
 
 ### Target: ~10 pikova ukupno (3 free + ~7 premium)
@@ -63,6 +92,7 @@ gde je razlika između realne verovatnoće i implicirane kvote NAJVEĆA.
 
 ### Reasoning Quality (CRITICAL)
 - Forma timova, bilans, H2H, povrede, value analiza
+- **SITUACIONI FAKTORI** — B2B, umor, motivacija, teren, vreme
 - **EXPLAIN WHY THIS MARKET** — zašto hendikep a ne ML, zašto Over a ne pobednik
 - reasoning (srpski) + reasoning_en (engleski)
 - Value edge: "Kvota 1.85 = ~54% implicirano, realna šansa ~62% → edge 8%"
@@ -79,3 +109,27 @@ gde je razlika između realne verovatnoće i implicirane kvote NAJVEĆA.
 - Ako je borderline 3-4⭐ → FREE (3⭐), ne premium
 - **BEST VALUE MARKET WINS** — don't default to ML
 - Pregledaj SVE mečeve, SVE markete, pa tek onda biraj top pikove
+
+## ERROR TRACKING — UČI IZ GREŠAKA
+
+### Kako radi
+Results cron (08:30) proverava rezultate. Za svaki IZGUBLJEN pick, napiši kratku analizu u fajl:
+`server/error-log.md`
+
+Format:
+```
+### 2026-03-19 | LOST | Lakers ML @1.55
+- **Šta sam mislio**: Lakers momentum, Dončić 40pts
+- **Šta se desilo**: Lakers B2B, umor presudio, Miami pobedio 112-98
+- **Lekcija**: B2B faktor mora imati veću težinu, posebno za gostujući tim
+- **Market greška?**: Da — trebao sam Over umesto ML, oba tima su visoko skorovala
+```
+
+### Kako koristiti
+Pre generisanja novih pikova, pročitaj `server/error-log.md` (ako postoji).
+Proveri da li praviš istu grešku ponovo:
+- Da li ignorišeš B2B?
+- Da li precenjuješ formu?
+- Da li biram loš market?
+
+Ovo je tvoj "memory" — uči iz grešaka, ne ponavljaj ih.
