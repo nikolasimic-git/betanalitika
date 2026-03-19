@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from './lib/supabase'
+import { supabase } from './lib/supabase'
 import type { Pick } from './types'
 
 function mapPick(p: any): Pick {
@@ -64,7 +64,6 @@ export async function fetchTodayPicks(_unused?: any, sport = 'all') {
       if (profile && !profileError) {
         isPremium = profile.tier === 'premium'
       } else {
-        // Fallback: check user metadata if RLS blocks profile query
         isPremium = session.user.user_metadata?.tier === 'premium'
       }
     } catch {
@@ -173,7 +172,7 @@ export async function fetchStats(sport = 'all') {
 }
 
 // ══════════════════════════════════════════
-// ADMIN — Direct Supabase queries
+// ADMIN — Uses auth session + RLS (no service key needed)
 // ══════════════════════════════════════════
 
 export async function adminDashboard() {
@@ -187,14 +186,14 @@ export async function adminDashboard() {
     { count: totalUsers },
     { count: premiumUsers },
   ] = await Promise.all([
-    supabaseAdmin.from('picks').select('*', { count: 'exact', head: true }),
-    supabaseAdmin.from('picks').select('*', { count: 'exact', head: true }).eq('match_date', today),
-    supabaseAdmin.from('picks').select('*', { count: 'exact', head: true }).eq('result', 'pending'),
-    supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }),
-    supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).eq('tier', 'premium'),
+    supabase.from('picks').select('*', { count: 'exact', head: true }),
+    supabase.from('picks').select('*', { count: 'exact', head: true }).eq('match_date', today),
+    supabase.from('picks').select('*', { count: 'exact', head: true }).eq('result', 'pending'),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }),
+    supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('tier', 'premium'),
   ])
 
-  const { data: recentPicks } = await supabaseAdmin
+  const { data: recentPicks } = await supabase
     .from('picks')
     .select('result')
     .gte('match_date', thirtyDaysAgo)
@@ -217,7 +216,7 @@ export async function adminDashboard() {
 }
 
 export async function adminGetPicks(date?: string) {
-  let query = supabaseAdmin.from('picks').select('*').order('match_date', { ascending: false })
+  let query = supabase.from('picks').select('*').order('match_date', { ascending: false })
   if (date) query = query.eq('match_date', date)
   const { data, error } = await query
   if (error) throw error
@@ -225,19 +224,19 @@ export async function adminGetPicks(date?: string) {
 }
 
 export async function adminUpdatePick(id: string, updates: any) {
-  const { data, error } = await supabaseAdmin.from('picks').update(updates).eq('id', id).select()
+  const { data, error } = await supabase.from('picks').update(updates).eq('id', id).select()
   if (error) throw error
   if (!data || data.length === 0) throw new Error('Update failed: pick not found')
 }
 
 export async function adminSetResult(id: string, result: string) {
-  const { data, error } = await supabaseAdmin.from('picks').update({ result }).eq('id', id).select()
+  const { data, error } = await supabase.from('picks').update({ result }).eq('id', id).select()
   if (error) throw error
   if (!data || data.length === 0) throw new Error('Update failed: pick not found')
 }
 
 export async function adminDeletePick(id: string) {
-  const { data, error } = await supabaseAdmin.from('picks').delete().eq('id', id).select()
+  const { data, error } = await supabase.from('picks').delete().eq('id', id).select()
   if (error) throw error
   if (!data || data.length === 0) throw new Error('Delete failed: pick not found')
 }
@@ -262,12 +261,12 @@ export async function adminAddPick(pick: any) {
     is_free: pick.isFree ?? false,
     is_sigurica: pick.isSigurica ?? false,
   }
-  const { error } = await supabaseAdmin.from('picks').insert(dbPick)
+  const { error } = await supabase.from('picks').insert(dbPick)
   if (error) throw error
 }
 
 export async function adminGetUsers() {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from('profiles')
     .select('id, email, name, role, tier, created_at')
   if (error) throw error
@@ -276,10 +275,9 @@ export async function adminGetUsers() {
 
 export async function adminUpdateUser(id: string, updates: { tier?: string; role?: string }) {
   if (isSuperAdmin(id) && (updates.role || updates.tier)) {
-    // Allow tier changes for super admin but block role changes
     if (updates.role) throw new Error('Super Admin role ne može biti promenjen.')
   }
-  const { error } = await supabaseAdmin.from('profiles').update(updates).eq('id', id)
+  const { error } = await supabase.from('profiles').update(updates).eq('id', id)
   if (error) throw error
 }
 
@@ -292,40 +290,40 @@ export function isSuperAdmin(id: string) {
 
 export async function adminUpdateUserRole(id: string, role: string) {
   if (isSuperAdmin(id)) throw new Error('Super Admin role ne može biti promenjen.')
-  const { error } = await supabaseAdmin.from('profiles').update({ role }).eq('id', id)
+  const { error } = await supabase.from('profiles').update({ role }).eq('id', id)
   if (error) throw error
   return { ok: true }
 }
 
 export async function adminDeleteUser(id: string) {
-  const { error } = await supabaseAdmin.from('profiles').delete().eq('id', id)
+  const { error } = await supabase.from('profiles').delete().eq('id', id)
   if (error) throw error
 }
 
 export async function adminBulkResult(ids: string[], result: string) {
-  const { error } = await supabaseAdmin.from('picks').update({ result }).in('id', ids)
+  const { error } = await supabase.from('picks').update({ result }).in('id', ids)
   if (error) throw error
 }
 
 // ── Ads ──
 
 export async function adminGetAds() {
-  const { data, error } = await supabaseAdmin.from('ads').select('*').order('created_at', { ascending: false })
+  const { data, error } = await supabase.from('ads').select('*').order('created_at', { ascending: false })
   if (error) throw error
   return { ads: data || [] }
 }
 
 export async function adminAddAd(ad: any) {
-  const { error } = await supabaseAdmin.from('ads').insert(ad)
+  const { error } = await supabase.from('ads').insert(ad)
   if (error) throw error
 }
 
 export async function adminUpdateAd(id: string, updates: any) {
-  const { error } = await supabaseAdmin.from('ads').update(updates).eq('id', id)
+  const { error } = await supabase.from('ads').update(updates).eq('id', id)
   if (error) throw error
 }
 
 export async function adminDeleteAd(id: string) {
-  const { error } = await supabaseAdmin.from('ads').delete().eq('id', id)
+  const { error } = await supabase.from('ads').delete().eq('id', id)
   if (error) throw error
 }

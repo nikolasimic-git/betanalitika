@@ -1,7 +1,7 @@
 import { useAuth } from '../auth'
 import { useLanguage } from '../contexts/LanguageContext'
 import { Link } from 'react-router-dom'
-import { User, Crown, Mail, Shield, BarChart3, Eye, ArrowRight } from 'lucide-react'
+import { User, Crown, Mail, Shield, ArrowRight } from 'lucide-react'
 
 export default function Profile() {
   const { user, isPremium, isAdmin } = useAuth()
@@ -68,30 +68,6 @@ export default function Profile() {
               </Link>
             </div>
           )}
-        </div>
-
-        <div className="rounded-2xl border border-border bg-card p-4 sm:p-6">
-          <h2 className="text-base font-bold mb-3 sm:text-lg sm:mb-4">{t('profile.stats')}</h2>
-          <div className="grid grid-cols-2 gap-3 sm:gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent/10">
-                <Eye className="h-5 w-5 text-accent" />
-              </div>
-              <div>
-                <p className="text-lg font-bold">142</p>
-                <p className="text-xs text-muted">{t('profile.views')}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold/10">
-                <BarChart3 className="h-5 w-5 text-gold" />
-              </div>
-              <div>
-                <p className="text-lg font-bold">28</p>
-                <p className="text-xs text-muted">{t('profile.days')}</p>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
