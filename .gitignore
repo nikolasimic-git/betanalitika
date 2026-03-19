@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+.env.local
+server/.env
 server/data/
 server/picks-db.json
 server/users.json

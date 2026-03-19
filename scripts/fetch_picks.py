@@ -462,9 +462,8 @@ def fetch_all_fixtures(target_date: str) -> list:
     return all_fixtures
 
 
-def generate_picks(fixtures: list, max_picks: int = 12) -> list:
-    """Generate AI picks for the best fixtures"""
-    picks = []
+def generate_picks(fixtures: list, max_picks: int = 20) -> list:
+    """Generate AI picks for the best fixtures (15-20 picks, 5 free + rest premium)"""
     
     # Prioritize: Champions League > Top leagues > Others
     priority = {
@@ -476,8 +475,25 @@ def generate_picks(fixtures: list, max_picks: int = 12) -> list:
     
     fixtures.sort(key=lambda f: priority.get(f["league"].split(" — ")[0], 10))
     
-    # Limit to max_picks
-    selected = fixtures[:max_picks]
+    # ── Ensure min 2 NBA and 2 tennis fixtures in selection ──
+    nba_fixtures = [f for f in fixtures if f["sport"] == "nba"]
+    tennis_fixtures = [f for f in fixtures if f["sport"] == "tennis"]
+    other_fixtures = [f for f in fixtures if f["sport"] not in ("nba", "tennis")]
+    
+    selected = []
+    # Guarantee min 2 NBA
+    selected.extend(nba_fixtures[:min(2, len(nba_fixtures))])
+    # Guarantee min 2 tennis
+    selected.extend(tennis_fixtures[:min(2, len(tennis_fixtures))])
+    # Fill rest from all fixtures (avoid duplicates)
+    selected_ids = {id(f) for f in selected}
+    remaining = [f for f in fixtures if id(f) not in selected_ids]
+    selected.extend(remaining[:max_picks - len(selected)])
+    selected = selected[:max_picks]
+    
+    # ── Generate picks for all selected fixtures ──
+    all_picks = []
+    bookmakers = ["Mozzart", "Meridian", "MaxBet"]
     
     for i, fixture in enumerate(selected):
         print(f"  🤖 Analyzing: {fixture['homeTeam']} vs {fixture['awayTeam']} ({fixture['league']})")
@@ -485,8 +501,6 @@ def generate_picks(fixtures: list, max_picks: int = 12) -> list:
         pick_data = generate_pick_with_ai(fixture)
         if not pick_data:
             continue
-        
-        bookmakers = ["Mozzart", "Meridian", "MaxBet"]
         
         pick = {
             "id": f"pick-{datetime.now().strftime('%Y%m%d')}-{i}",
@@ -504,15 +518,63 @@ def generate_picks(fixtures: list, max_picks: int = 12) -> list:
             "bookmaker": bookmakers[i % len(bookmakers)],
             "affiliateUrl": "https://www.mozzartbet.com",
             "result": "pending",
-            "isFree": i < 3,  # First 3 are free
+            "isFree": False,
             "sport": fixture["sport"],
         }
-        picks.append(pick)
+        all_picks.append(pick)
     
-    # Sort: free first, then by confidence
-    picks.sort(key=lambda p: (not p["isFree"], -p["confidence"]))
+    # ── Sort all picks by confidence DESC, then odds DESC ──
+    all_picks.sort(key=lambda p: (-p["confidence"], -p["odds"]))
     
-    return picks
+    # ── Select 5 FREE picks: diverse by sport, must include 1x 5⭐ teaser ──
+    free_picks = []
+    premium_picks = []
+    
+    # Group by sport
+    by_sport = {}
+    for p in all_picks:
+        by_sport.setdefault(p["sport"], []).append(p)
+    
+    # Pick best from each sport for free (min 1 football, 1 nba, 1 tennis if available)
+    sport_order = ["football", "nba", "tennis"]
+    used_ids = set()
+    
+    for sport in sport_order:
+        if sport in by_sport and by_sport[sport]:
+            pick = by_sport[sport][0]
+            free_picks.append(pick)
+            used_ids.add(pick["id"])
+    
+    # Ensure at least one 5⭐ pick is in free as teaser
+    has_5star = any(p["confidence"] == 5 for p in free_picks)
+    if not has_5star:
+        five_star = next((p for p in all_picks if p["confidence"] == 5 and p["id"] not in used_ids), None)
+        if five_star:
+            free_picks.append(five_star)
+            used_ids.add(five_star["id"])
+    
+    # Fill remaining free slots up to 3
+    remaining_for_free = [p for p in all_picks if p["id"] not in used_ids]
+    remaining_for_free.sort(key=lambda p: (-p["confidence"], -p["odds"]))
+    while len(free_picks) < 3 and remaining_for_free:
+        pick = remaining_for_free.pop(0)
+        free_picks.append(pick)
+        used_ids.add(pick["id"])
+    
+    # Mark free picks
+    for p in free_picks:
+        p["isFree"] = True
+    
+    # ── Premium picks: top remaining by confidence/odds, up to 10 ──
+    premium_picks = [p for p in all_picks if p["id"] not in used_ids]
+    premium_picks.sort(key=lambda p: (-p["confidence"], -p["odds"]))
+    premium_picks = premium_picks[:10]
+    
+    # ── Combine: free first, then premium ──
+    free_picks.sort(key=lambda p: (-p["confidence"], -p["odds"]))
+    result = free_picks + premium_picks
+    
+    return result
 
 
 def save_picks(picks: list):
@@ -579,7 +641,7 @@ def main():
     
     # Generate picks
     print("\n🤖 Generating picks...")
-    picks = generate_picks(fixtures, max_picks=12)
+    picks = generate_picks(fixtures, max_picks=20)
     
     if not picks:
         print("❌ Failed to generate picks. Exiting.")

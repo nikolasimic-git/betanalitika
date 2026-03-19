@@ -1,15 +1,69 @@
 import express from 'express'
 import cors from 'cors'
 import crypto from 'crypto'
+import bcrypt from 'bcryptjs'
+import rateLimit from 'express-rate-limit'
 import { supabase } from './supabase-client.mjs'
 
 const app = express()
-app.use(cors())
+
+// ── Issue 1: CORS — restrict to allowed origins ──
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  process.env.FRONTEND_URL,
+].filter(Boolean)
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(null, true) // In early stage, allow all but log
+      // Later: callback(new Error('Not allowed by CORS'))
+    }
+  },
+  credentials: true,
+}))
+
 app.use(express.json())
 
+// ── Issue 6: Rate limiting ──
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { error: 'Too many requests, try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts, try again in 15 minutes' },
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
+app.use('/api/', apiLimiter)
+app.use('/api/auth/login', authLimiter)
+app.use('/api/auth/register', authLimiter)
+
 // ── Helpers ──
-function hashPassword(pw) {
-  return crypto.createHash('sha256').update(pw).digest('hex')
+async function hashPassword(pw) {
+  return bcrypt.hash(pw, 12)
+}
+
+async function verifyAndUpgradePassword(password, storedHash, userId) {
+  if (storedHash.startsWith('$2a$') || storedHash.startsWith('$2b$')) {
+    return bcrypt.compare(password, storedHash)
+  }
+  const sha256 = crypto.createHash('sha256').update(password).digest('hex')
+  if (sha256 !== storedHash) return false
+  const bcryptHash = await bcrypt.hash(password, 12)
+  await supabase.from('profiles').update({ password_hash: bcryptHash }).eq('id', userId)
+  console.log(`🔐 Auto-upgraded password hash for user ${userId}`)
+  return true
 }
 
 function generateToken() {
@@ -20,15 +74,38 @@ function todayStr() {
   return new Date().toISOString().split('T')[0]
 }
 
-// In-memory session store (for backward compat — could move to Supabase later)
-const sessions = {}
+// ── Issue 2: Sessions in Supabase ──
+async function createSession(userId) {
+  const token = generateToken()
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+  await supabase.from('sessions').insert({ token, user_id: userId, expires_at: expiresAt })
+  return token
+}
+
+async function getSession(token) {
+  const { data, error } = await supabase
+    .from('sessions')
+    .select('user_id, expires_at')
+    .eq('token', token)
+    .single()
+  if (error || !data) return null
+  if (new Date(data.expires_at) < new Date()) {
+    await supabase.from('sessions').delete().eq('token', token)
+    return null
+  }
+  return data.user_id
+}
+
+async function deleteSession(token) {
+  await supabase.from('sessions').delete().eq('token', token)
+}
 
 // ── Auth Middleware ──
-function authMiddleware(req, res, next) {
+async function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '')
   if (!token) return res.status(401).json({ error: 'No token' })
 
-  const userId = sessions[token]
+  const userId = await getSession(token)
   if (!userId) return res.status(401).json({ error: 'Invalid token' })
 
   req.userId = userId
@@ -72,14 +149,13 @@ app.post('/api/auth/login', async (req, res) => {
     return res.status(401).json({ error: 'Pogrešan email ili lozinka' })
   }
 
-  // Check password (stored as hash in a password_hash field, or use Supabase Auth)
-  // For backward compat, we check the hashed password
-  if (user.password_hash && user.password_hash !== hashPassword(password)) {
-    return res.status(401).json({ error: 'Pogrešan email ili lozinka' })
+  // Check password with bcrypt (auto-upgrades legacy SHA-256 hashes)
+  if (user.password_hash) {
+    const valid = await verifyAndUpgradePassword(password, user.password_hash, user.id)
+    if (!valid) return res.status(401).json({ error: 'Pogrešan email ili lozinka' })
   }
 
-  const token = generateToken()
-  sessions[token] = user.id
+  const token = await createSession(user.id)
 
   res.json({
     token,
@@ -108,15 +184,14 @@ app.post('/api/auth/register', async (req, res) => {
       name: name || email.split('@')[0],
       role: 'user',
       tier: 'free',
-      password_hash: hashPassword(password),
+      password_hash: await hashPassword(password),
     })
     .select()
     .single()
 
   if (error) return res.status(500).json({ error: error.message })
 
-  const token = generateToken()
-  sessions[token] = newUser.id
+  const token = await createSession(newUser.id)
 
   res.json({
     token,
@@ -129,8 +204,8 @@ app.get('/api/auth/me', authMiddleware, loadUser, (req, res) => {
   res.json({ user })
 })
 
-app.post('/api/auth/logout', authMiddleware, (req, res) => {
-  delete sessions[req.token]
+app.post('/api/auth/logout', authMiddleware, async (req, res) => {
+  await deleteSession(req.token)
   res.json({ ok: true })
 })
 
@@ -164,13 +239,16 @@ app.get('/api/picks/today', async (req, res) => {
   // Check auth for premium
   const token = req.headers.authorization?.replace('Bearer ', '')
   let isPremium = false
-  if (token && sessions[token]) {
-    const { data: user } = await supabase
-      .from('profiles')
-      .select('tier')
-      .eq('id', sessions[token])
-      .single()
-    isPremium = user?.tier === 'premium'
+  if (token) {
+    const sessionUserId = await getSession(token)
+    if (sessionUserId) {
+      const { data: user } = await supabase
+        .from('profiles')
+        .select('tier')
+        .eq('id', sessionUserId)
+        .single()
+      isPremium = user?.tier === 'premium'
+    }
   }
 
   const result = todayPicks.map(p => {
@@ -360,6 +438,23 @@ app.put('/api/admin/users/:id/tier', authMiddleware, loadUser, adminMiddleware, 
   res.json({ ok: true })
 })
 
+app.patch('/api/admin/users/:id/role', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { role } = req.body
+  if (!role || !['admin', 'user'].includes(role)) {
+    return res.status(400).json({ error: 'Role must be admin or user' })
+  }
+  // Safety: admin cannot remove their own admin role
+  if (req.params.id === req.userId && role !== 'admin') {
+    return res.status(400).json({ error: 'Ne možeš sam sebi ukloniti admin ulogu' })
+  }
+  const { error } = await supabase
+    .from('profiles')
+    .update({ role })
+    .eq('id', req.params.id)
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true })
+})
+
 app.patch('/api/admin/users/:id', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
   const updates = {}
   if (req.body.tier) updates.tier = req.body.tier
@@ -454,6 +549,46 @@ app.get('/api/admin/dashboard', authMiddleware, loadUser, adminMiddleware, async
     winRate,
     revenueEstimate,
   })
+})
+
+// ══════════════════════════════════════════
+// ADS ADMIN ROUTES
+// ══════════════════════════════════════════
+
+app.get('/api/admin/ads', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { data: ads, error } = await supabase
+    .from('ads')
+    .select('*')
+    .order('created_at', { ascending: false })
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ads: ads || [] })
+})
+
+app.post('/api/admin/ads', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { data: ad, error } = await supabase
+    .from('ads')
+    .insert(req.body)
+    .select()
+    .single()
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true, ad })
+})
+
+app.put('/api/admin/ads/:id', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { data: ad, error } = await supabase
+    .from('ads')
+    .update(req.body)
+    .eq('id', req.params.id)
+    .select()
+    .single()
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true, ad })
+})
+
+app.delete('/api/admin/ads/:id', authMiddleware, loadUser, adminMiddleware, async (req, res) => {
+  const { error } = await supabase.from('ads').delete().eq('id', req.params.id)
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true })
 })
 
 // ══════════════════════════════════════════

@@ -97,36 +97,52 @@ function determineResult(pick, homeScore, awayScore) {
   const predValue = (pick.prediction_value || '').trim()
   const total = homeScore + awayScore
 
-  // 1X2
-  if (predType === '1' || predType === 'Pobednik' && predValue.includes('1')) {
-    return homeScore > awayScore ? 'won' : 'lost'
-  }
-  if (predType === '2' || predType === 'Pobednik' && predValue.includes('2')) {
-    return awayScore > homeScore ? 'won' : 'lost'
-  }
-  if (predType === 'X' || predType === 'Pobednik' && predValue.toLowerCase().includes('x')) {
-    return homeScore === awayScore ? 'won' : 'lost'
+  // 1X2 / Pobednik
+  if (predType === 'Pobednik' || predType === '1X2' || predType === '1' || predType === '2' || predType === 'X') {
+    // Parse "1 (Team Name)" or "2 (Team Name)" or just "1"/"2"/"X"
+    const val = predValue.trim()
+    if (val.startsWith('1') || predType === '1') {
+      return homeScore > awayScore ? 'won' : 'lost'
+    }
+    if (val.startsWith('2') || predType === '2') {
+      return awayScore > homeScore ? 'won' : 'lost'
+    }
+    if (val.toLowerCase().startsWith('x') || predType === 'X') {
+      return homeScore === awayScore ? 'won' : 'lost'
+    }
+    // Fallback: match team name in value
+    if (teamsMatch(pick.home_team, val)) {
+      return homeScore > awayScore ? 'won' : 'lost'
+    }
+    if (teamsMatch(pick.away_team, val)) {
+      return awayScore > homeScore ? 'won' : 'lost'
+    }
   }
 
-  // Over/Under
-  if (predType === 'Over' || predValue.toLowerCase().startsWith('over')) {
+  // Over/Under (including Serbian: Ukupno poena, Ukupno golova)
+  const isOverUnderType = ['Over', 'Under', 'Ukupno poena', 'Ukupno golova'].includes(predType)
+  if (isOverUnderType || predValue.toLowerCase().startsWith('over') || predValue.toLowerCase().startsWith('under')) {
+    const isOver = predValue.toLowerCase().startsWith('over') || predValue.toLowerCase().includes('over')
+    const isUnder = predValue.toLowerCase().startsWith('under') || predValue.toLowerCase().includes('under')
     const match = predValue.match(/([\d.]+)/)
     const line = match ? parseFloat(match[1]) : 2.5
-    return total > line ? 'won' : 'lost'
-  }
-  if (predType === 'Under' || predValue.toLowerCase().startsWith('under')) {
-    const match = predValue.match(/([\d.]+)/)
-    const line = match ? parseFloat(match[1]) : 2.5
-    return total < line ? 'won' : 'lost'
+    if (isOver) return total > line ? 'won' : 'lost'
+    if (isUnder) return total < line ? 'won' : 'lost'
+    // If just a number without over/under, can't determine
+    return null
   }
 
-  // BTTS
-  if (predType === 'BTTS' || predValue.toLowerCase().includes('btts')) {
+  // BTTS (Both Teams To Score / Oba tima daju gol)
+  if (predType === 'BTTS' || predType === 'Oba tima daju gol' || predValue.toLowerCase().includes('btts')) {
     if (predValue.toLowerCase().includes('75+')) {
       // Basketball: both teams 75+
       return (homeScore >= 75 && awayScore >= 75) ? 'won' : 'lost'
     }
-    return (homeScore >= 1 && awayScore >= 1) ? 'won' : 'lost'
+    const yes = predValue.toUpperCase() === 'DA' || predValue.toLowerCase() === 'yes' || predValue.toLowerCase() === 'da'
+    const no = predValue.toUpperCase() === 'NE' || predValue.toLowerCase() === 'no' || predValue.toLowerCase() === 'ne'
+    const bothScored = homeScore >= 1 && awayScore >= 1
+    if (no) return bothScored ? 'lost' : 'won'
+    return bothScored ? 'won' : 'lost'
   }
 
   // BTTS 75+ (basketball)
@@ -150,8 +166,8 @@ function determineResult(pick, homeScore, awayScore) {
     }
   }
 
-  // Pobednik with team name matching
-  if (predType === 'Pobednik') {
+  // Pobednik meča (tennis)
+  if (predType === 'Pobednik meča') {
     if (teamsMatch(pick.home_team, predValue)) {
       return homeScore > awayScore ? 'won' : 'lost'
     }
@@ -217,10 +233,22 @@ export async function updateResults() {
     if (!result) continue
 
     const finalScore = `${score.homeScore}:${score.awayScore}`
-    const { error: updateErr } = await supabase
+    // Try with final_score, fallback without it if column doesn't exist
+    let updateErr
+    const { error: err1 } = await supabase
       .from('picks')
       .update({ result, final_score: finalScore })
       .eq('id', pick.id)
+    
+    if (err1 && err1.message?.includes('final_score')) {
+      const { error: err2 } = await supabase
+        .from('picks')
+        .update({ result })
+        .eq('id', pick.id)
+      updateErr = err2
+    } else {
+      updateErr = err1
+    }
 
     if (updateErr) {
       console.log(`  ❌ Update error for ${pick.id}: ${updateErr.message}`)

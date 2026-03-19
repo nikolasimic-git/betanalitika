@@ -1,4 +1,4 @@
-import { supabase } from './lib/supabase'
+import { supabase, supabaseAdmin } from './lib/supabase'
 import type { Pick } from './types'
 
 function mapPick(p: any): Pick {
@@ -14,6 +14,7 @@ function mapPick(p: any): Pick {
     predictionValue: p.prediction_value ?? p.predictionValue,
     confidence: p.confidence,
     reasoning: p.reasoning,
+    reasoningEn: p.reasoning_en ?? p.reasoningEn,
     odds: typeof p.odds === 'string' ? parseFloat(p.odds) || 0 : (p.odds ?? 0),
     bookmaker: p.bookmaker,
     affiliateUrl: p.affiliate_url ?? p.affiliateUrl,
@@ -24,22 +25,11 @@ function mapPick(p: any): Pick {
   }
 }
 
-// ── Fallback API base for admin/auth operations that still use Express ──
-export const API_BASE = import.meta.env.DEV 
-  ? (window.location.hostname === 'localhost' ? 'http://localhost:3001' : '')
-  : ''
-
-function headers(token?: string | null): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (token) h['Authorization'] = `Bearer ${token}`
-  return h
-}
-
 // ══════════════════════════════════════════
 // PUBLIC READS — Direct from Supabase
 // ══════════════════════════════════════════
 
-export async function fetchTodayPicks(token?: string | null, sport = 'all') {
+export async function fetchTodayPicks(_unused?: any, sport = 'all') {
   const today = new Date().toISOString().split('T')[0]
   const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0]
 
@@ -61,8 +51,7 @@ export async function fetchTodayPicks(token?: string | null, sport = 'all') {
     return { picks: [], date: today, message: 'Pikovi za danas još nisu generisani.' }
   }
 
-  // Check premium status via token (if using Express auth)
-  // For Supabase Auth, check session
+  // Check premium status via Supabase session
   const { data: { session } } = await supabase.auth.getSession()
   let isPremium = false
   if (session?.user) {
@@ -74,19 +63,7 @@ export async function fetchTodayPicks(token?: string | null, sport = 'all') {
     isPremium = profile?.tier === 'premium'
   }
 
-  // Also check via legacy token
-  if (!isPremium && token) {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/me`, { headers: headers(token) })
-      if (res.ok) {
-        const { user } = await res.json()
-        isPremium = user?.tier === 'premium'
-      }
-    } catch (_) {}
-  }
-
   if (isPremium) {
-    // Premium: all picks visible, mark highest confidence as sigurica
     const sorted = [...picks].sort((a: any, b: any) => (b.confidence ?? 0) - (a.confidence ?? 0))
     const result = sorted.map((p: any, i: number) => ({
       ...p,
@@ -101,7 +78,6 @@ export async function fetchTodayPicks(token?: string | null, sport = 'all') {
   const freePicks = picks.filter((p: any) => p.is_free)
   const premiumOnlyPicks = picks.filter((p: any) => !p.is_free)
 
-  // Sort by confidence descending and pick top 3
   const sortedFree = [...freePicks].sort((a: any, b: any) => (b.confidence ?? 0) - (a.confidence ?? 0))
   const selected = sortedFree.slice(0, 3)
   const selectedIds = new Set(selected.map((p: any) => p.id))
@@ -188,70 +164,147 @@ export async function fetchStats(sport = 'all') {
 }
 
 // ══════════════════════════════════════════
-// ADMIN — Still through Express API (needs auth middleware)
+// ADMIN — Direct Supabase queries
 // ══════════════════════════════════════════
 
-export async function adminDashboard(token: string) {
-  const res = await fetch(`${API_BASE}/api/admin/dashboard`, { headers: headers(token) })
-  return res.json()
+export async function adminDashboard() {
+  const today = new Date().toISOString().split('T')[0]
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
+
+  const [
+    { count: totalPicks },
+    { count: todayPicks },
+    { count: pendingPicks },
+    { count: totalUsers },
+    { count: premiumUsers },
+  ] = await Promise.all([
+    supabaseAdmin.from('picks').select('*', { count: 'exact', head: true }),
+    supabaseAdmin.from('picks').select('*', { count: 'exact', head: true }).eq('match_date', today),
+    supabaseAdmin.from('picks').select('*', { count: 'exact', head: true }).eq('result', 'pending'),
+    supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }),
+    supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).eq('tier', 'premium'),
+  ])
+
+  const { data: recentPicks } = await supabaseAdmin
+    .from('picks')
+    .select('result')
+    .gte('match_date', thirtyDaysAgo)
+    .neq('result', 'pending')
+
+  const resolved = recentPicks || []
+  const won = resolved.filter(p => p.result === 'won').length
+  const winRate = resolved.length > 0 ? +(won / resolved.length * 100).toFixed(1) : 0
+
+  return {
+    totalPicks: totalPicks || 0,
+    todayPicks: todayPicks || 0,
+    pendingPicks: pendingPicks || 0,
+    totalUsers: totalUsers || 0,
+    premiumUsers: premiumUsers || 0,
+    freeUsers: (totalUsers || 0) - (premiumUsers || 0),
+    winRate,
+    revenueEstimate: (premiumUsers || 0) * 20,
+  }
 }
 
-export async function adminGetPicks(token: string, date?: string) {
-  const q = date ? `?date=${date}` : ''
-  const res = await fetch(`${API_BASE}/api/admin/picks${q}`, { headers: headers(token) })
-  return res.json()
+export async function adminGetPicks(date?: string) {
+  let query = supabaseAdmin.from('picks').select('*').order('match_date', { ascending: false })
+  if (date) query = query.eq('match_date', date)
+  const { data, error } = await query
+  if (error) throw error
+  return { picks: (data || []).map(mapPick), total: (data || []).length }
 }
 
-export async function adminUpdatePick(token: string, id: string, data: any) {
-  const res = await fetch(`${API_BASE}/api/admin/picks/${id}`, {
-    method: 'PUT', headers: headers(token), body: JSON.stringify(data),
-  })
-  return res.json()
+export async function adminUpdatePick(id: string, updates: any) {
+  const { data, error } = await supabaseAdmin.from('picks').update(updates).eq('id', id).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('Update failed: pick not found')
 }
 
-export async function adminSetResult(token: string, id: string, result: string) {
-  const res = await fetch(`${API_BASE}/api/admin/picks/${id}/result`, {
-    method: 'POST', headers: headers(token), body: JSON.stringify({ result }),
-  })
-  return res.json()
+export async function adminSetResult(id: string, result: string) {
+  const { data, error } = await supabaseAdmin.from('picks').update({ result }).eq('id', id).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('Update failed: pick not found')
 }
 
-export async function adminDeletePick(token: string, id: string) {
-  const res = await fetch(`${API_BASE}/api/admin/picks/${id}`, {
-    method: 'DELETE', headers: headers(token),
-  })
-  return res.json()
+export async function adminDeletePick(id: string) {
+  const { data, error } = await supabaseAdmin.from('picks').delete().eq('id', id).select()
+  if (error) throw error
+  if (!data || data.length === 0) throw new Error('Delete failed: pick not found')
 }
 
-export async function adminAddPick(token: string, pick: any) {
-  const res = await fetch(`${API_BASE}/api/admin/picks`, {
-    method: 'POST', headers: headers(token), body: JSON.stringify(pick),
-  })
-  return res.json()
+export async function adminAddPick(pick: any) {
+  const dbPick = {
+    id: `pick-manual-${Date.now()}`,
+    match_date: pick.matchDate || new Date().toISOString().split('T')[0],
+    home_team: pick.homeTeam,
+    away_team: pick.awayTeam,
+    kick_off: pick.kickOff,
+    prediction_type: pick.predictionType,
+    prediction_value: pick.predictionValue,
+    league_flag: pick.leagueFlag,
+    league: pick.league,
+    sport: pick.sport,
+    confidence: pick.confidence,
+    reasoning: pick.reasoning,
+    odds: pick.odds,
+    bookmaker: pick.bookmaker,
+    result: 'pending',
+    is_free: pick.isFree ?? false,
+    is_sigurica: pick.isSigurica ?? false,
+  }
+  const { error } = await supabaseAdmin.from('picks').insert(dbPick)
+  if (error) throw error
 }
 
-export async function adminGetUsers(token: string) {
-  const res = await fetch(`${API_BASE}/api/admin/users`, { headers: headers(token) })
-  return res.json()
+export async function adminGetUsers() {
+  const { data, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, email, name, role, tier, created_at')
+  if (error) throw error
+  return { users: data || [] }
 }
 
-export async function adminUpdateUser(token: string, id: string, data: { tier?: string; role?: string }) {
-  const res = await fetch(`${API_BASE}/api/admin/users/${id}`, {
-    method: 'PATCH', headers: headers(token), body: JSON.stringify(data),
-  })
-  return res.json()
+export async function adminUpdateUser(id: string, updates: { tier?: string; role?: string }) {
+  const { error } = await supabaseAdmin.from('profiles').update(updates).eq('id', id)
+  if (error) throw error
 }
 
-export async function adminDeleteUser(token: string, id: string) {
-  const res = await fetch(`${API_BASE}/api/admin/users/${id}`, {
-    method: 'DELETE', headers: headers(token),
-  })
-  return res.json()
+export async function adminUpdateUserRole(id: string, role: string) {
+  const { error } = await supabaseAdmin.from('profiles').update({ role }).eq('id', id)
+  if (error) throw error
+  return { ok: true }
 }
 
-export async function adminBulkResult(token: string, ids: string[], result: string) {
-  const res = await fetch(`${API_BASE}/api/admin/picks/bulk-result`, {
-    method: 'POST', headers: headers(token), body: JSON.stringify({ ids, result }),
-  })
-  return res.json()
+export async function adminDeleteUser(id: string) {
+  const { error } = await supabaseAdmin.from('profiles').delete().eq('id', id)
+  if (error) throw error
+}
+
+export async function adminBulkResult(ids: string[], result: string) {
+  const { error } = await supabaseAdmin.from('picks').update({ result }).in('id', ids)
+  if (error) throw error
+}
+
+// ── Ads ──
+
+export async function adminGetAds() {
+  const { data, error } = await supabaseAdmin.from('ads').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return { ads: data || [] }
+}
+
+export async function adminAddAd(ad: any) {
+  const { error } = await supabaseAdmin.from('ads').insert(ad)
+  if (error) throw error
+}
+
+export async function adminUpdateAd(id: string, updates: any) {
+  const { error } = await supabaseAdmin.from('ads').update(updates).eq('id', id)
+  if (error) throw error
+}
+
+export async function adminDeleteAd(id: string) {
+  const { error } = await supabaseAdmin.from('ads').delete().eq('id', id)
+  if (error) throw error
 }

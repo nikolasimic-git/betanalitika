@@ -84,7 +84,14 @@ export default function Picks() {
 
       <SportFilter value={sport} onChange={setSport} />
 
-      {stats && <div className="mt-4"><StatsBar stats={stats} /></div>}
+      {stats && (
+        <div className="mt-4">
+          <StatsBar stats={stats} />
+          {!isPremium && (
+            <p className="mt-1.5 text-center text-xs text-muted">{t('stats.premium.note')}</p>
+          )}
+        </div>
+      )}
 
       {picks.length === 0 && (
         <div className="mt-8 rounded-xl border border-border bg-card p-6 text-center sm:p-8">
@@ -115,12 +122,19 @@ export default function Picks() {
             </div>
           )}
 
+          {!isPremium && (freePicks.length > 0 || siguricaPick.length > 0 || premiumPicks.length > 0) && (
+            <div className="mt-6 rounded-xl border border-accent/20 bg-accent/5 p-4 text-sm text-muted">
+              {t('picks.premium.winrate.banner')}
+            </div>
+          )}
+
           {(siguricaPick.length > 0 || premiumPicks.length > 0) && (
             <div className="mt-8 sm:mt-10">
-              <h2 className="mb-4 flex items-center gap-2 text-base font-bold sm:text-lg">
+              <h2 className="mb-1 flex items-center gap-2 text-base font-bold sm:text-lg">
                 💎 {t('picks.premium')}
                 <span className="rounded-full bg-gold/10 px-2.5 py-0.5 text-xs font-medium text-gold">{siguricaPick.length + premiumPicks.length}</span>
               </h2>
+              <p className="mb-4 text-xs text-muted">{t('picks.premium.quality')}</p>
 
               {siguricaPick.length > 0 && (
                 <div className="mb-6">

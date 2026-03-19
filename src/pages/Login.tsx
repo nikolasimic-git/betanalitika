@@ -30,7 +30,7 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await login(email, password, rememberMe)
+      await login(email, password)
       addToast('success', t('login.success'))
       navigate('/picks')
     } catch (err: any) {

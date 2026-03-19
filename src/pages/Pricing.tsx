@@ -1,4 +1,4 @@
-import { Check, X, Crown, Zap, Bitcoin, Mail, ArrowRight, HelpCircle, Wallet, Clock, Shield } from 'lucide-react'
+import { Check, X, Crown, Zap, Bitcoin, MessageCircle, ArrowRight, HelpCircle, Wallet, Clock, Shield } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { useLanguage } from '../contexts/LanguageContext'
@@ -103,18 +103,18 @@ export default function Pricing() {
           {[
             { step: '1', icon: <Wallet className="h-5 w-5 text-accent sm:h-6 sm:w-6" />, title: t('pricing.crypto.step1'), desc: t('pricing.crypto.step1.desc') },
             {
-              step: '2', icon: <Bitcoin className="h-5 w-5 text-accent sm:h-6 sm:w-6" />, title: t('pricing.crypto.step2'),
+              step: '2', icon: <MessageCircle className="h-5 w-5 text-accent sm:h-6 sm:w-6" />, title: t('pricing.crypto.step2'),
               desc: (
-                <div className="space-y-1 text-xs mt-2">
-                  <p><span className="text-accent font-mono">BTC:</span> <span className="font-mono text-muted select-all cursor-text break-all">bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh</span></p>
-                  <p><span className="text-accent font-mono">ETH:</span> <span className="font-mono text-muted select-all cursor-text break-all">0x71C7656EC7ab88b098defB751B7401B5f6d8976F</span></p>
-                  <p><span className="text-accent font-mono">USDT (TRC-20):</span> <span className="font-mono text-muted select-all cursor-text break-all">TN2Y8vFMkMq4xECrEd3Y6MZpxKAFR7RJoA</span></p>
-                  <p><span className="text-accent font-mono">LTC:</span> <span className="font-mono text-muted select-all cursor-text break-all">ltc1qhfk2a5v3s7r8x9y0z1w2e3r4t5y6u7i8o9p0</span></p>
+                <div className="mt-2">
+                  <a href="https://t.me/N1k0l2" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-accent/10 px-4 py-2 text-sm font-semibold text-accent hover:bg-accent/20 transition-colors">
+                    <MessageCircle className="h-4 w-4" /> Telegram @N1k0l2
+                  </a>
+                  <p className="text-xs text-muted mt-2">{t('pricing.crypto.step2.info')}</p>
                 </div>
               ),
             },
-            { step: '3', icon: <Mail className="h-5 w-5 text-accent sm:h-6 sm:w-6" />, title: t('pricing.crypto.step3'), desc: t('pricing.crypto.step3.desc') },
-            { step: '4', icon: <Clock className="h-5 w-5 text-accent sm:h-6 sm:w-6" />, title: t('pricing.crypto.step4'), desc: t('pricing.crypto.step4.desc') },
+            { step: '3', icon: <Clock className="h-5 w-5 text-accent sm:h-6 sm:w-6" />, title: t('pricing.crypto.step3'), desc: t('pricing.crypto.step3.desc') },
+            { step: '4', icon: <Check className="h-5 w-5 text-accent sm:h-6 sm:w-6" />, title: t('pricing.crypto.step4'), desc: t('pricing.crypto.step4.desc') },
           ].map((s, i) => (
             <div key={i} className={`animate-fade-in-up stagger-${i + 1} rounded-xl border border-border bg-card p-4 sm:p-6`}>
               <div className="flex items-center gap-2 mb-3 sm:gap-3">
@@ -128,26 +128,13 @@ export default function Pricing() {
         </div>
       </div>
 
-      {/* Nemaš kripto */}
+      {/* Pomoć */}
       <div className="mt-12 max-w-3xl mx-auto rounded-2xl border border-accent/20 bg-accent/5 p-6 sm:mt-16 sm:p-8">
-        <h2 className="text-lg font-bold mb-4 sm:text-xl">{t('pricing.nocrypto.title')}</h2>
-        <ol className="space-y-3 text-xs text-muted sm:text-sm">
-          <li className="flex items-start gap-2">
-            <span className="font-bold text-accent">1.</span>
-            {t('pricing.nocrypto.1')} <span className="text-white font-medium">Binance</span> / <span className="text-white font-medium">Coinbase</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="font-bold text-accent">2.</span>
-            {t('pricing.nocrypto.2')} <span className="text-white font-medium">USDT</span> {t('pricing.nocrypto.2.sub')}
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="font-bold text-accent">3.</span>
-            {t('pricing.nocrypto.3')} <span className="text-white font-medium">TRC-20</span> {t('pricing.nocrypto.3.sub')}
-          </li>
-        </ol>
-        <Link to="/how-to-pay" className="mt-6 inline-flex items-center gap-2 text-accent font-semibold text-sm hover:underline min-h-[44px]">
-          {t('pricing.guide')} <ArrowRight className="h-4 w-4" />
-        </Link>
+        <h2 className="text-lg font-bold mb-4 sm:text-xl">{t('pricing.help.title')}</h2>
+        <p className="text-sm text-muted mb-4">{t('pricing.help.desc')}</p>
+        <a href="https://t.me/N1k0l2" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-darker hover:bg-accent-dim transition-colors min-h-[44px]">
+          <MessageCircle className="h-4 w-4" /> Telegram @N1k0l2
+        </a>
       </div>
 
       {/* FAQ */}

@@ -24,7 +24,7 @@ export default function History() {
   async function loadData() {
     setLoading(true)
     try {
-      const maxDays = isPremium ? undefined : 3
+      const maxDays = isPremium ? 30 : 3
       const [histData, statsData] = await Promise.all([
         fetchHistory(page, 30, 'all', maxDays),
         fetchStats(),

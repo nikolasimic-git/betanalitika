@@ -3,12 +3,13 @@ import { useAuth } from '../auth'
 import {
   adminDashboard, adminGetPicks, adminSetResult, adminDeletePick,
   adminAddPick, adminUpdatePick, adminGetUsers, adminUpdateUser,
-  adminDeleteUser, adminBulkResult,
+  adminUpdateUserRole, adminDeleteUser, adminBulkResult,
+  adminGetAds, adminAddAd, adminUpdateAd, adminDeleteAd,
 } from '../api'
 import {
   Shield, Check, X, Trash2, Loader2, RefreshCw, Plus, Users,
   BarChart3, ClipboardList, Search, Crown, DollarSign, TrendingUp,
-  Calendar, Edit2, AlertTriangle, ChevronUp, ChevronDown,
+  Calendar, Edit2, AlertTriangle, ChevronUp, ChevronDown, Megaphone,
 } from 'lucide-react'
 import { Pick } from '../types'
 
@@ -288,7 +289,7 @@ interface UserRow { id: string; email: string; name: string; role: string; tier:
 type UserSortKey = 'created_at' | 'tier' | 'email'
 type SortDir = 'asc' | 'desc'
 
-function UsersTab({ token }: { token: string }) {
+function UsersTab({ currentUserId }: { currentUserId?: string }) {
   const [users, setUsers] = useState<UserRow[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
@@ -300,7 +301,7 @@ function UsersTab({ token }: { token: string }) {
   async function load() {
     setLoading(true)
     try {
-      const { users: u } = await adminGetUsers(token)
+      const { users: u } = await adminGetUsers()
       setUsers(u || [])
     } catch (e) { console.error(e); show('Greška pri učitavanju korisnika', 'error') }
     finally { setLoading(false) }
@@ -316,10 +317,33 @@ function UsersTab({ token }: { token: string }) {
       message: `${label} za ${user.email}?`,
       action: async () => {
         try {
-          await adminUpdateUser(token, user.id, { tier: newTier })
+          await adminUpdateUser(user.id, { tier: newTier })
           show(`${user.email} → ${newTier}`, 'success')
           load()
         } catch { show('Greška pri ažuriranju tiera', 'error') }
+      },
+    })
+  }
+
+  async function toggleRole(user: UserRow) {
+    const newRole = user.role === 'admin' ? 'user' : 'admin'
+    const isSelf = user.id === currentUserId
+    if (isSelf && newRole === 'user') {
+      show('Ne možeš sam sebi ukloniti admin ulogu', 'error')
+      return
+    }
+    const label = newRole === 'admin' ? 'Dodeli Admin' : 'Ukloni Admin'
+    setConfirmAction({
+      title: label,
+      message: `${label} za ${user.email}?`,
+      danger: newRole === 'user',
+      action: async () => {
+        try {
+          const res = await adminUpdateUserRole(user.id, newRole)
+          if (res.error) { show(res.error, 'error'); return }
+          show(`${user.email} → ${newRole}`, 'success')
+          load()
+        } catch { show('Greška pri promeni uloge', 'error') }
       },
     })
   }
@@ -331,7 +355,7 @@ function UsersTab({ token }: { token: string }) {
       danger: true,
       action: async () => {
         try {
-          await adminDeleteUser(token, user.id)
+          await adminDeleteUser(user.id)
           show(`${user.email} obrisan`, 'success')
           load()
         } catch { show('Greška pri brisanju korisnika', 'error') }
@@ -376,7 +400,7 @@ function UsersTab({ token }: { token: string }) {
           title={confirmAction.title}
           message={confirmAction.message}
           danger={confirmAction.danger}
-          onConfirm={() => { confirmAction.action(); setConfirmAction(null) }}
+          onConfirm={async () => { try { await confirmAction.action(); } catch (e) { console.error('CONFIRM ERROR:', e); } setConfirmAction(null) }}
           onCancel={() => setConfirmAction(null)}
         />
       )}
@@ -440,6 +464,17 @@ function UsersTab({ token }: { token: string }) {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex gap-1">
+                      <button onClick={() => toggleRole(user)}
+                        disabled={user.id === currentUserId && user.role === 'admin'}
+                        className={`rounded px-2 py-1 text-xs font-medium ${
+                          user.id === currentUserId && user.role === 'admin'
+                            ? 'bg-gray-500/5 text-gray-600 cursor-not-allowed'
+                            : user.role === 'admin'
+                              ? 'bg-red-500/10 text-red-400 hover:bg-red-500/20'
+                              : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'
+                        }`}>
+                        {user.role === 'admin' ? 'Ukloni Admin' : 'Dodeli Admin'}
+                      </button>
                       <button onClick={() => toggleTier(user)}
                         className={`rounded px-2 py-1 text-xs font-medium ${
                           user.tier === 'premium'
@@ -470,7 +505,7 @@ function UsersTab({ token }: { token: string }) {
 /* ═══════════════════════════════════════════
    TAB: PICKS
    ═══════════════════════════════════════════ */
-function PicksTab({ token }: { token: string }) {
+function PicksTab() {
   const [picks, setPicks] = useState<Pick[]>([])
   const [loading, setLoading] = useState(true)
   const [dateFilter, setDateFilter] = useState(new Date().toISOString().split('T')[0])
@@ -483,7 +518,7 @@ function PicksTab({ token }: { token: string }) {
   async function loadPicks() {
     setLoading(true)
     try {
-      const { picks: p } = await adminGetPicks(token, dateFilter)
+      const { picks: p } = await adminGetPicks(dateFilter)
       setPicks(p || [])
       setSelected(new Set())
     } catch (e) { console.error(e); show('Greška pri učitavanju pikova', 'error') }
@@ -494,7 +529,7 @@ function PicksTab({ token }: { token: string }) {
 
   async function setResult(id: string, result: string) {
     try {
-      await adminSetResult(token, id, result)
+      await adminSetResult(id, result)
       show(`Rezultat postavljen: ${result}`, 'success')
       loadPicks()
     } catch { show('Greška pri postavljanju rezultata', 'error') }
@@ -507,7 +542,7 @@ function PicksTab({ token }: { token: string }) {
       danger: true,
       action: async () => {
         try {
-          await adminDeletePick(token, id)
+          await adminDeletePick(id)
           show('Pik obrisan', 'success')
           loadPicks()
         } catch { show('Greška pri brisanju pika', 'error') }
@@ -518,7 +553,7 @@ function PicksTab({ token }: { token: string }) {
   async function handleSavePick(pick: any) {
     try {
       if (editPick?.id) {
-        await adminUpdatePick(token, editPick.id, {
+        await adminUpdatePick(editPick.id, {
           sport: pick.sport,
           league: pick.league,
           league_flag: pick.leagueFlag,
@@ -537,7 +572,7 @@ function PicksTab({ token }: { token: string }) {
         })
         show('Pik ažuriran', 'success')
       } else {
-        await adminAddPick(token, pick)
+        await adminAddPick(pick)
         show('Pik dodat', 'success')
       }
       setShowModal(false)
@@ -586,7 +621,7 @@ function PicksTab({ token }: { token: string }) {
     if (selected.size === 0) return
     try {
       const ids = Array.from(selected)
-      await adminBulkResult(token, ids, result)
+      await adminBulkResult(ids, result)
       show(`${ids.length} pikova → ${result}`, 'success')
       loadPicks()
     } catch { show('Greška pri bulk ažuriranju', 'error') }
@@ -599,7 +634,7 @@ function PicksTab({ token }: { token: string }) {
           title={confirmAction.title}
           message={confirmAction.message}
           danger={confirmAction.danger}
-          onConfirm={() => { confirmAction.action(); setConfirmAction(null) }}
+          onConfirm={async () => { try { await confirmAction.action(); } catch(e) { console.error('CONFIRM ERROR:', e); } setConfirmAction(null) }}
           onCancel={() => setConfirmAction(null)}
         />
       )}
@@ -727,11 +762,11 @@ function PicksTab({ token }: { token: string }) {
                           </button>
                         </>
                       )}
-                      <button onClick={() => openEdit(pick)}
+                      <button onClick={() => { console.log('EDIT clicked', pick.id); openEdit(pick) }}
                         className="rounded bg-blue-500/10 p-1 text-blue-400 hover:bg-blue-500/20" title="Izmeni">
                         <Edit2 className="h-4 w-4" />
                       </button>
-                      <button onClick={() => deletePick(pick.id)}
+                      <button onClick={() => { console.log('DELETE clicked', pick.id); deletePick(pick.id) }}
                         className="rounded bg-card p-1 text-muted hover:text-danger" title="Obriši">
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -749,28 +784,153 @@ function PicksTab({ token }: { token: string }) {
 }
 
 /* ═══════════════════════════════════════════
+   TAB: ADS (REKLAME)
+   ═══════════════════════════════════════════ */
+interface AdRow { id: string; name: string; title: string; description_sr: string; description_en: string; emoji: string; image_url: string | null; link_url: string | null; placement: string; is_active: boolean; priority: number; created_at: string }
+
+const emptyAd = { name: '', title: '', description_sr: '', description_en: '', emoji: '🎯', image_url: '', link_url: '', placement: 'banner', is_active: true, priority: 0 }
+
+function AdFormModal({ initial, onSave, onClose }: { initial?: any; onSave: (ad: any) => void; onClose: () => void }) {
+  const [form, setForm] = useState({ ...emptyAd, ...(initial || {}) })
+  function handleSubmit(e: React.FormEvent) { e.preventDefault(); onSave(form) }
+  const f = (key: string, val: any) => setForm({ ...form, [key]: val })
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <form onSubmit={handleSubmit} className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-card p-6">
+        <h2 className="text-xl font-bold mb-4">{initial ? '✏️ Izmeni reklamu' : '➕ Dodaj reklamu'}</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="block text-xs text-muted mb-1">Ime (interno)</label><input required value={form.name} onChange={e => f('name', e.target.value)} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white" /></div>
+          <div><label className="block text-xs text-muted mb-1">Naslov</label><input required value={form.title} onChange={e => f('title', e.target.value)} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white" /></div>
+          <div className="col-span-2"><label className="block text-xs text-muted mb-1">Opis (SR)</label><textarea value={form.description_sr} onChange={e => f('description_sr', e.target.value)} rows={2} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white" /></div>
+          <div className="col-span-2"><label className="block text-xs text-muted mb-1">Opis (EN)</label><textarea value={form.description_en} onChange={e => f('description_en', e.target.value)} rows={2} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white" /></div>
+          <div><label className="block text-xs text-muted mb-1">Emoji</label><input value={form.emoji} onChange={e => f('emoji', e.target.value)} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white" /></div>
+          <div><label className="block text-xs text-muted mb-1">Placement</label>
+            <select value={form.placement} onChange={e => f('placement', e.target.value)} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white">
+              <option value="banner">Banner</option><option value="sidebar">Sidebar</option>
+            </select>
+          </div>
+          <div><label className="block text-xs text-muted mb-1">Image URL</label><input value={form.image_url || ''} onChange={e => f('image_url', e.target.value || null)} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white" placeholder="https://..." /></div>
+          <div><label className="block text-xs text-muted mb-1">Link URL</label><input value={form.link_url || ''} onChange={e => f('link_url', e.target.value || null)} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white" placeholder="https://..." /></div>
+          <div><label className="block text-xs text-muted mb-1">Prioritet</label><input type="number" value={form.priority} onChange={e => f('priority', parseInt(e.target.value) || 0)} className="w-full rounded-lg border border-border bg-darker px-3 py-2 text-sm text-white" /></div>
+          <div className="flex items-center gap-2 pt-5"><input type="checkbox" checked={form.is_active} onChange={e => f('is_active', e.target.checked)} className="rounded border-border" /><label className="text-sm text-muted">Aktivna</label></div>
+        </div>
+        <div className="mt-4 flex gap-3 justify-end">
+          <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-sm text-muted hover:text-white">Otkaži</button>
+          <button type="submit" className="rounded-lg bg-accent px-6 py-2 text-sm font-semibold text-darker hover:bg-accent-dim">{initial ? 'Sačuvaj' : 'Dodaj'}</button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+function AdsTab() {
+  const [ads, setAds] = useState<AdRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showModal, setShowModal] = useState(false)
+  const [editAd, setEditAd] = useState<any>(null)
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; action: () => void; danger?: boolean } | null>(null)
+  const { fb, show, clear } = useFeedback()
+
+  async function load() {
+    setLoading(true)
+    try { const { ads: a } = await adminGetAds(); setAds(a || []) }
+    catch { show('Greška pri učitavanju reklama', 'error') }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  async function handleSave(ad: any) {
+    try {
+      const payload = { ...ad, image_url: ad.image_url || null, link_url: ad.link_url || null }
+      if (editAd?.id) { await adminUpdateAd(editAd.id, payload); show('Reklama ažurirana') }
+      else { await adminAddAd(payload); show('Reklama dodata') }
+      setShowModal(false); setEditAd(null); load()
+    } catch { show('Greška pri čuvanju reklame', 'error') }
+  }
+
+  async function toggleActive(ad: AdRow) {
+    try { await adminUpdateAd(ad.id, { is_active: !ad.is_active }); show(`${ad.name} → ${!ad.is_active ? 'aktivna' : 'neaktivna'}`); load() }
+    catch { show('Greška', 'error') }
+  }
+
+  async function deleteAd(ad: AdRow) {
+    setConfirmAction({ title: 'Obriši reklamu', message: `Obriši "${ad.name}"?`, danger: true, action: async () => {
+      try { await adminDeleteAd(ad.id); show('Reklama obrisana'); load() }
+      catch { show('Greška pri brisanju', 'error') }
+    }})
+  }
+
+  return (
+    <div>
+      {confirmAction && <ConfirmModal title={confirmAction.title} message={confirmAction.message} danger={confirmAction.danger} onConfirm={async () => { try { await confirmAction.action(); } catch (e) { console.error('CONFIRM ERROR:', e); } setConfirmAction(null) }} onCancel={() => setConfirmAction(null)} />}
+      {fb && <FeedbackBanner message={fb.message} type={fb.type} onDismiss={clear} />}
+      {showModal && <AdFormModal initial={editAd} onSave={handleSave} onClose={() => { setShowModal(false); setEditAd(null) }} />}
+
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={() => { setEditAd(null); setShowModal(true) }} className="flex items-center gap-1 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-darker hover:bg-accent-dim"><Plus className="h-4 w-4" /> Dodaj reklamu</button>
+        <button onClick={load} className="rounded-lg border border-border p-2 text-muted hover:text-white ml-auto"><RefreshCw className="h-4 w-4" /></button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-accent" /></div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[700px]">
+            <thead><tr className="border-b border-border text-left text-muted">
+              <th className="px-3 py-2">Emoji</th><th className="px-3 py-2">Ime</th><th className="px-3 py-2">Naslov</th><th className="px-3 py-2">Placement</th><th className="px-3 py-2">Prioritet</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Akcije</th>
+            </tr></thead>
+            <tbody>
+              {ads.map(ad => (
+                <tr key={ad.id} className="border-b border-border/50 hover:bg-card">
+                  <td className="px-3 py-2 text-xl">{ad.emoji || '—'}</td>
+                  <td className="px-3 py-2 font-medium">{ad.name}</td>
+                  <td className="px-3 py-2">{ad.title}</td>
+                  <td className="px-3 py-2"><span className={`rounded px-2 py-0.5 text-xs font-medium ${ad.placement === 'banner' ? 'bg-blue-500/10 text-blue-400' : 'bg-purple-500/10 text-purple-400'}`}>{ad.placement}</span></td>
+                  <td className="px-3 py-2">{ad.priority}</td>
+                  <td className="px-3 py-2">
+                    <button onClick={() => toggleActive(ad)} className={`rounded px-2 py-0.5 text-xs font-medium ${ad.is_active ? 'bg-accent/10 text-accent' : 'bg-gray-500/10 text-gray-400'}`}>{ad.is_active ? '✅ Aktivna' : '⏸ Neaktivna'}</button>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex gap-1">
+                      <button onClick={() => { setEditAd(ad); setShowModal(true) }} className="rounded bg-blue-500/10 p-1 text-blue-400 hover:bg-blue-500/20" title="Izmeni"><Edit2 className="h-4 w-4" /></button>
+                      <button onClick={() => deleteAd(ad)} className="rounded bg-card p-1 text-muted hover:text-danger" title="Obriši"><Trash2 className="h-4 w-4" /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {ads.length === 0 && <p className="py-8 text-center text-muted">Nema reklama. Dodaj prvu!</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════
    MAIN ADMIN PAGE
    ═══════════════════════════════════════════ */
 
-type TabKey = 'dashboard' | 'picks' | 'users'
+type TabKey = 'dashboard' | 'picks' | 'users' | 'ads'
 
 const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <BarChart3 className="h-4 w-4" /> },
   { key: 'picks', label: 'Pikovi', icon: <ClipboardList className="h-4 w-4" /> },
   { key: 'users', label: 'Korisnici', icon: <Users className="h-4 w-4" /> },
+  { key: 'ads', label: 'Reklame', icon: <Megaphone className="h-4 w-4" /> },
 ]
 
 export default function Admin() {
-  const { token, isAdmin } = useAuth()
+  const { isAdmin, user } = useAuth()
   const [dash, setDash] = useState<any>(null)
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!token) return
+    if (!isAdmin) return
     setLoading(true)
-    adminDashboard(token).then(d => { setDash(d); setLoading(false) }).catch(() => setLoading(false))
-  }, [token])
+    adminDashboard().then(d => { setDash(d); setLoading(false) }).catch(() => setLoading(false))
+  }, [isAdmin])
 
   if (!isAdmin) {
     return (
@@ -810,8 +970,9 @@ export default function Admin() {
       ) : (
         <>
           {activeTab === 'dashboard' && <DashboardTab dash={dash} />}
-          {activeTab === 'picks' && token && <PicksTab token={token} />}
-          {activeTab === 'users' && token && <UsersTab token={token} />}
+          {activeTab === 'picks' && <PicksTab />}
+          {activeTab === 'users' && <UsersTab currentUserId={user?.id} />}
+          {activeTab === 'ads' && <AdsTab />}
         </>
       )}
     </div>

@@ -36,8 +36,6 @@ export default function Navbar() {
 
   const isActive = (path: string) => location.pathname === path
 
-  const toggleLang = () => setLang(lang === 'sr' ? 'en' : 'sr')
-
   return (
     <nav className={`sticky top-0 z-50 border-b border-border bg-darker/80 backdrop-blur-xl transition-shadow duration-300 ${scrolled ? 'shadow-lg shadow-black/20' : ''}`}>
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
@@ -66,13 +64,29 @@ export default function Navbar() {
           ))}
 
           {/* Language toggle */}
-          <button
-            onClick={toggleLang}
-            className="ml-2 rounded-lg border border-border px-2.5 py-1.5 text-sm transition-colors hover:bg-card"
-            title={lang === 'sr' ? 'Switch to English' : 'Prebaci na srpski'}
-          >
-            {lang === 'sr' ? '🇬🇧' : '🇷🇸'}
-          </button>
+          <div className="ml-2 flex items-center rounded-lg border border-border overflow-hidden">
+            <button
+              onClick={() => setLang('sr')}
+              className={`px-2.5 py-1.5 text-xs font-bold transition-colors ${
+                lang === 'sr'
+                  ? 'bg-accent text-darker'
+                  : 'text-muted hover:text-white hover:bg-card'
+              }`}
+            >
+              SR
+            </button>
+            <div className="w-px h-5 bg-border" />
+            <button
+              onClick={() => setLang('en')}
+              className={`px-2.5 py-1.5 text-xs font-bold transition-colors ${
+                lang === 'en'
+                  ? 'bg-accent text-darker'
+                  : 'text-muted hover:text-white hover:bg-card'
+              }`}
+            >
+              EN
+            </button>
+          </div>
 
           {user ? (
             <div className="ml-2 flex items-center gap-2">
@@ -101,12 +115,25 @@ export default function Navbar() {
 
         {/* Mobile toggle + lang */}
         <div className="flex items-center gap-2 md:hidden">
-          <button
-            onClick={toggleLang}
-            className="rounded-lg border border-border px-2.5 py-1.5 text-sm"
-          >
-            {lang === 'sr' ? '🇬🇧' : '🇷🇸'}
-          </button>
+          <div className="flex items-center rounded-lg border border-border overflow-hidden">
+            <button
+              onClick={() => setLang('sr')}
+              className={`px-2 py-1.5 text-xs font-bold transition-colors ${
+                lang === 'sr' ? 'bg-accent text-darker' : 'text-muted'
+              }`}
+            >
+              SR
+            </button>
+            <div className="w-px h-5 bg-border" />
+            <button
+              onClick={() => setLang('en')}
+              className={`px-2 py-1.5 text-xs font-bold transition-colors ${
+                lang === 'en' ? 'bg-accent text-darker' : 'text-muted'
+              }`}
+            >
+              EN
+            </button>
+          </div>
           <button onClick={() => setOpen(!open)} className="text-muted" title={t('nav.menu')}>
             {open ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
           </button>

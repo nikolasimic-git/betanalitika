@@ -1,6 +1,26 @@
 import { Pick } from '../types'
-import { Lock, Star, ExternalLink, Check, X, Clock } from 'lucide-react'
+import { Lock, Star, Check, X, Clock } from 'lucide-react'
 import { useLanguage } from '../contexts/LanguageContext'
+
+// Translation maps for prediction_type and prediction_value (Serbian → English)
+const predictionTypeMap: Record<string, string> = {
+  'Pobednik': 'Winner',
+  'Ukupno poena': 'Total points',
+  'Oba tima daju gol': 'Both teams to score',
+}
+
+const predictionValueMap: Record<string, string> = {
+  'DA': 'Yes',
+  'NE': 'No',
+}
+
+function translatePrediction(type: string, value: string, lang: string): { type: string; value: string } {
+  if (lang !== 'en') return { type, value }
+  return {
+    type: predictionTypeMap[type] || type,
+    value: predictionValueMap[value] || value,
+  }
+}
 
 interface Props {
   pick: Pick
@@ -9,7 +29,9 @@ interface Props {
 }
 
 export default function PickCard({ pick, locked = false, index = 0 }: Props) {
-  const { t } = useLanguage()
+  const { t, lang } = useLanguage()
+  const reasoning = lang === 'en' && pick.reasoningEn ? pick.reasoningEn : pick.reasoning
+  const { type: pType, value: pValue } = translatePrediction(pick.predictionType, pick.predictionValue, lang)
   const staggerClass = index < 10 ? `stagger-${index + 1}` : ''
 
   const resultIcon: Record<string, React.ReactNode> = {
@@ -76,7 +98,7 @@ export default function PickCard({ pick, locked = false, index = 0 }: Props) {
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <span className="rounded-lg bg-gold/15 px-3 py-1 text-sm font-semibold text-gold">
-            {pick.predictionType}: {pick.predictionValue}
+            {pType}: {pValue}
           </span>
           <div className="flex items-center gap-0.5">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -85,21 +107,11 @@ export default function PickCard({ pick, locked = false, index = 0 }: Props) {
           </div>
         </div>
 
-        <p className="mt-3 text-sm leading-relaxed text-muted">{pick.reasoning}</p>
+        <p className="mt-3 text-sm leading-relaxed text-muted">{reasoning}</p>
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2">
-            {pick.odds > 0 && <span className="text-xl font-bold text-white sm:text-2xl">{pick.odds.toFixed(2)}</span>}
-            <span className="text-xs text-muted">@ {pick.bookmaker}</span>
-          </div>
-          <a
-            href={pick.affiliateUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-darker transition-transform duration-200 hover:scale-105 hover:bg-gold/90"
-          >
-            {t('picks.play')} <ExternalLink className="h-3.5 w-3.5" />
-          </a>
+        <div className="mt-4 flex items-center gap-2">
+          {pick.odds > 0 && <span className="text-xl font-bold text-white sm:text-2xl">{pick.odds.toFixed(2)}</span>}
+          <span className="text-xs text-muted">@ BetAnalitika</span>
         </div>
       </div>
     )
@@ -124,7 +136,7 @@ export default function PickCard({ pick, locked = false, index = 0 }: Props) {
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <span className="rounded-lg bg-accent/10 px-3 py-1 text-sm font-semibold text-accent">
-          {pick.predictionType}: {pick.predictionValue}
+          {pType}: {pValue}
         </span>
         <div className="flex items-center gap-0.5">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -138,21 +150,11 @@ export default function PickCard({ pick, locked = false, index = 0 }: Props) {
         </div>
       </div>
 
-      <p className="mt-3 text-sm leading-relaxed text-muted">{pick.reasoning}</p>
+      <p className="mt-3 text-sm leading-relaxed text-muted">{reasoning}</p>
 
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          {pick.odds > 0 && <span className="text-xl font-bold text-white sm:text-2xl">{pick.odds.toFixed(2)}</span>}
-          <span className="text-xs text-muted">@ {pick.bookmaker}</span>
-        </div>
-        <a
-          href={pick.affiliateUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-darker transition-transform duration-200 hover:scale-105 hover:bg-accent-dim"
-        >
-          {t('picks.play')} <ExternalLink className="h-3.5 w-3.5" />
-        </a>
+      <div className="mt-4 flex items-center gap-2">
+        {pick.odds > 0 && <span className="text-xl font-bold text-white sm:text-2xl">{pick.odds.toFixed(2)}</span>}
+        <span className="text-xs text-muted">@ BetAnalitika</span>
       </div>
     </div>
   )

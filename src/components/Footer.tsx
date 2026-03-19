@@ -1,4 +1,4 @@
-import { TrendingUp, Mail } from 'lucide-react'
+import { TrendingUp, MessageCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
 
@@ -45,9 +45,9 @@ export default function Footer() {
           {/* Column 4 */}
           <div>
             <h3 className="font-semibold text-sm mb-3">{t('footer.contact')}</h3>
-            <a href="mailto:support@betanalitika.rs" className="flex items-center gap-2 text-sm text-accent transition-colors duration-200 hover:text-accent-dim">
-              <Mail className="h-4 w-4" />
-              support@betanalitika.rs
+            <a href="https://t.me/N1k0l2" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm text-accent transition-colors duration-200 hover:text-accent-dim">
+              <MessageCircle className="h-4 w-4" />
+              Telegram: @N1k0l2
             </a>
             <p className="mt-3 text-xs text-muted">{t('footer.respond')}</p>
           </div>

@@ -10,6 +10,7 @@ export interface Pick {
   predictionValue: string
   confidence: number // 1-5
   reasoning: string
+  reasoningEn?: string
   odds: number
   bookmaker: string
   affiliateUrl: string

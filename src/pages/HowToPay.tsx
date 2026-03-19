@@ -1,4 +1,4 @@
-import { Bitcoin, Wallet, Shield, Mail, HelpCircle } from 'lucide-react'
+import { Bitcoin, Wallet, Shield, MessageCircle, HelpCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
 
@@ -87,11 +87,11 @@ export default function HowToPay() {
 
       <section className="mt-8 sm:mt-12">
         <h2 className="text-xl font-bold mb-4 sm:text-2xl">
-          <Mail className="inline h-5 w-5 text-accent mr-2 sm:h-6 sm:w-6" />
+          <MessageCircle className="inline h-5 w-5 text-accent mr-2 sm:h-6 sm:w-6" />
           {t('howtopay.after.title')}
         </h2>
         <div className="rounded-xl border border-border bg-card p-4 text-xs text-muted space-y-3 sm:p-6 sm:text-sm">
-          <p>{t('howtopay.after.send')} <span className="text-accent font-medium">support@betanalitika.rs</span> {t('howtopay.after.with')}</p>
+          <p>{t('howtopay.after.send')} <a href="https://t.me/N1k0l2" target="_blank" rel="noopener noreferrer" className="text-accent font-medium hover:underline">Telegram @N1k0l2</a> {t('howtopay.after.with')}</p>
           <ul className="list-disc list-inside space-y-1">
             <li>{t('howtopay.after.1')}</li>
             <li>{t('howtopay.after.2')}</li>
