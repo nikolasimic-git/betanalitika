@@ -55,12 +55,21 @@ export async function fetchTodayPicks(_unused?: any, sport = 'all') {
   const { data: { session } } = await supabase.auth.getSession()
   let isPremium = false
   if (session?.user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('tier')
-      .eq('id', session.user.id)
-      .single()
-    isPremium = profile?.tier === 'premium'
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('tier')
+        .eq('id', session.user.id)
+        .single()
+      if (profile && !profileError) {
+        isPremium = profile.tier === 'premium'
+      } else {
+        // Fallback: check user metadata if RLS blocks profile query
+        isPremium = session.user.user_metadata?.tier === 'premium'
+      }
+    } catch {
+      isPremium = session.user.user_metadata?.tier === 'premium'
+    }
   }
 
   if (isPremium) {

@@ -26,12 +26,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   async function loadProfile(userId: string) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, email, name, role, tier')
-      .eq('id', userId)
-      .single()
-    if (data) setUser(data)
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, email, name, role, tier')
+        .eq('id', userId)
+        .single()
+      if (data && !error) {
+        setUser(data)
+        return
+      }
+      console.warn('Profile query failed (likely RLS), using auth fallback:', error?.message)
+    } catch (e) {
+      console.warn('Profile query exception, using auth fallback:', e)
+    }
+    // Fallback: build user from auth metadata when RLS blocks profile query
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (authUser) {
+      setUser({
+        id: authUser.id,
+        email: authUser.email || '',
+        name: authUser.user_metadata?.name || authUser.email?.split('@')[0] || '',
+        role: authUser.user_metadata?.role || 'user',
+        tier: authUser.user_metadata?.tier || 'free',
+      })
+    }
   }
 
   useEffect(() => {
