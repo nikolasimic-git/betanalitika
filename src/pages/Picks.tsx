@@ -12,7 +12,7 @@ import AdSidebar from '../components/AdSidebar'
 import PickCardSkeleton from '../components/PickCardSkeleton'
 
 export default function Picks() {
-  const { token, isPremium } = useAuth()
+  const { isPremium } = useAuth()
   const { t, lang } = useLanguage()
   const [picks, setPicks] = useState<(Pick & { locked?: boolean })[]>([])
   const [stats, setStats] = useState<PickStats | null>(null)
@@ -27,13 +27,13 @@ export default function Picks() {
     year: 'numeric',
   })
 
-  useEffect(() => { loadData() }, [token, sport])
+  useEffect(() => { loadData() }, [sport])
 
   async function loadData() {
     setLoading(true)
     try {
       const [picksData, statsData] = await Promise.all([
-        fetchTodayPicks(token, sport),
+        fetchTodayPicks(undefined, sport),
         fetchStats(sport),
       ])
       setPicks(picksData.picks || [])

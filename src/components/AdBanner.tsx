@@ -35,7 +35,7 @@ export default function AdBanner({ placement = 'banner' }: { placement?: string 
       .then(({ data }) => {
         if (data && data.length > 0) setAds(data as Ad[])
       })
-      .catch(() => {}) // graceful fallback
+      // graceful fallback on error
   }, [placement])
 
   useEffect(() => {

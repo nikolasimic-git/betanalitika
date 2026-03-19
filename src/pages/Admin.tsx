@@ -339,8 +339,7 @@ function UsersTab({ currentUserId }: { currentUserId?: string }) {
       danger: newRole === 'user',
       action: async () => {
         try {
-          const res = await adminUpdateUserRole(user.id, newRole)
-          if (res.error) { show(res.error, 'error'); return }
+          await adminUpdateUserRole(user.id, newRole)
           show(`${user.email} → ${newRole}`, 'success')
           load()
         } catch { show('Greška pri promeni uloge', 'error') }

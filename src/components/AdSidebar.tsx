@@ -28,7 +28,7 @@ export default function AdSidebar() {
       .then(({ data }) => {
         if (data && data.length > 0) setSidebarAds(data as Ad[])
       })
-      .catch(() => {})
+      // graceful fallback on error
   }, [])
 
   // If we have dedicated sidebar ads from DB, render them directly

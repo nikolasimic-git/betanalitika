@@ -6,9 +6,10 @@ const supabaseServiceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-// Service-role client bypasses RLS — use ONLY for admin operations
+// Service-role client bypasses RLS — used for admin operations
+// In production, falls back to anon client (RLS policies must allow admin role)
 export const supabaseAdmin = supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false },
     })
-  : supabase // fallback to anon if no service key
+  : supabase
