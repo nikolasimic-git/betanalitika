@@ -30,7 +30,6 @@ export default function Navbar() {
   const desktopLinks = [
     ...links.slice(0, 4),
     { to: '/how-to-use', label: t('nav.guide') },
-    { to: '/tennis', label: t('nav.tennis') },
     { to: '/contact', label: t('nav.contact') },
     ...links.slice(4),
   ]
@@ -148,7 +147,7 @@ export default function Navbar() {
         }`}
       >
         <div className="px-4 pb-4">
-          {[...links, { to: '/how-to-use', label: t('nav.guide') }, { to: '/tennis', label: t('nav.tennis') }, { to: '/contact', label: t('nav.contact') }].map((l) => (
+          {[...links, { to: '/how-to-use', label: t('nav.guide') }, { to: '/contact', label: t('nav.contact') }].map((l) => (
             <Link
               key={l.to}
               to={l.to}
